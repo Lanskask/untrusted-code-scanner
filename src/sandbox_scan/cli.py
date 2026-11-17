@@ -3,7 +3,6 @@
 import argparse
 import atexit
 import datetime
-import os
 import shutil
 import sys
 import tempfile
@@ -44,7 +43,6 @@ def main() -> None:
 
     out_dir = Path(a.out or f"scan-report-{datetime.datetime.now():%Y%m%d-%H%M%S}")
     tmp = Path(tempfile.mkdtemp(prefix="sandbox_scan_"))
-    os.chmod(tmp, 0o700)
     atexit.register(shutil.rmtree, tmp, True)
     provider = None
 
@@ -80,7 +78,6 @@ def main() -> None:
     except Exception as e:
         log(f"\nERROR: {e}")
         res = None
-        rc = 3
     finally:
         if provider and not a.keep:
             provider.destroy()
