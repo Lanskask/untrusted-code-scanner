@@ -52,3 +52,10 @@
 
 - Decision: `make test` skips tests marked `e2e`; `make e2e` runs the real Docker scan.
 - Reason: measured. `make test` took 70 s and needs network because of the Docker run; without it, 0.45 s.
+
+## 2026-11-17 A failed droplet delete is reported loudly
+
+- Decision: `DigitalOcean.destroy()` checks the exit code of `doctl compute droplet delete` and, on failure, prints that
+  the droplet is still billing plus the exact command to run.
+- Reason: the user asked whether the tool knows that only deleting stops billing. It deletes (never powers off), but it
+  printed "destroyed" even when the delete failed, for example with a token without delete rights.

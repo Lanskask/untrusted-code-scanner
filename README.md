@@ -37,6 +37,20 @@ requests. Smaller tiers (512 MiB, 1 GiB) are untested here; installing `semgrep`
 them. Check DigitalOcean's current billing rules before a long run. The droplet exists for a few minutes and is
 destroyed after the scan.
 
+### DigitalOcean setup (`--provision`)
+
+```bash
+doctl auth login --scopes "read write"   # opens the browser; "read" alone cannot create a droplet
+doctl account get                         # check that it works
+```
+
+The tool runs `doctl compute ssh-key import|delete` and `doctl compute droplet create|list|delete`, so it needs write
+access. A personal access token with custom scopes limited to droplets and SSH keys (`doctl auth init`) is narrower; the
+exact scope names are not verified here. The scan always ends by deleting the droplet and the key (power-off would keep
+billing). If a delete fails, the tool prints `FAILED to delete droplet ... IT IS STILL BILLING` with the exact
+`doctl compute droplet delete <id>` command; run it, then check `doctl compute droplet list`. With `--keep` nothing is
+deleted.
+
 ## Install and local scan
 
 ```bash

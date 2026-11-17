@@ -34,3 +34,19 @@ def test_cli_rejects_bad_args(argv: list[str], tmp_path: Path, monkeypatch: pyte
     with pytest.raises(SystemExit) as e:
         cli.main()
     assert e.value.code not in (0, None)
+
+
+def test_destroy_reports_a_failed_delete_instead_of_claiming_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def fake_run(argv: list[str], **kw: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(argv, 1 if "delete" in argv else 0, "", "403 forbidden")
+
+    monkeypatch.setattr(remote.shutil, "which", lambda _: "/usr/bin/doctl")
+    monkeypatch.setattr(remote.subprocess, "run", fake_run)
+    do = remote.DigitalOcean(tmp_path, "nyc1", "s-1vcpu-1gb")
+    do.droplet_id = "42"
+    do.destroy()
+    out = capsys.readouterr().out
+    assert "destroyed droplet" not in out
+    assert "doctl compute droplet delete 42" in out  # tells the user the exact command to stop billing
