@@ -47,3 +47,8 @@
   Bend 2 `LAWS.bend` was not adopted.
 - Reason: see the Bend answer in the session; the proofs would cover a Bend model, not the Docker, ssh and semgrep calls
   that carry the risk, and no tool makes a scanner "100% secure".
+
+## 2026-11-17 Docker e2e test is a separate target
+
+- Decision: `make test` skips tests marked `e2e`; `make e2e` runs the real Docker scan.
+- Reason: measured. `make test` took 70 s and needs network because of the Docker run; without it, 0.45 s.

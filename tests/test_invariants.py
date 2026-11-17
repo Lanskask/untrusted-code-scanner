@@ -56,8 +56,7 @@ def test_pack_never_follows_symlinks_or_ships_special_files(tmp_path: Path) -> N
     (src / "link").symlink_to("/etc/hostname")
     pack(src, tmp_path / "o.tgz", 10)
     with tarfile.open(tmp_path / "o.tgz") as tf:
-        member = tf.getmember("code/link") if "code/link" in tf.getnames() else tf.getmember("link")
-        assert member.issym()  # stored as a link, content of /etc/hostname never copied
+        assert tf.getmember("link").issym()  # stored as a link, content of /etc/hostname never copied
 
 
 @pytest.mark.parametrize("ch", [chr(c) for c in [*range(0, 9), *range(11, 32), 127, 0x9B, 0x202E, 0x2066]])

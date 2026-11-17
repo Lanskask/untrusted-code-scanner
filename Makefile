@@ -15,12 +15,15 @@ install: ## Install the `sandbox-scan` command globally (editable, runs from any
 uninstall: ## Remove the global `sandbox-scan` command
 	uv tool uninstall sandbox-scan
 
-test: ## Run unit tests
-	uv run pytest -q
+test: ## Run fast tests (no Docker)
+	uv run pytest -q -m "not e2e"
+
+e2e: ## Real scan of the attack fixture through Docker (~1 min, needs network)
+	uv run pytest -q -m e2e
 
 lint: ## ruff + ty
 	uv run ruff check src tests
 	uv run ruff format --check src tests
 	uvx ty check src tests
 
-.PHONY: help setup run install uninstall test lint
+.PHONY: help setup run install uninstall test e2e lint

@@ -26,6 +26,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 norecursedirs = ["tests/fixtures"]
+markers = ["e2e: real Docker scan, about a minute, needs network (make e2e)"]
 pythonpath = ["src"]
 
 # remote_scanner.py is moved verbatim (dense regex tables, runs on the VM); only correctness rules apply.

@@ -43,6 +43,7 @@ def docker_up() -> bool:
     return bool(shutil.which("docker")) and subprocess.run(["docker", "info"], capture_output=True).returncode == 0
 
 
+@pytest.mark.e2e
 @pytest.mark.skipif(not docker_up(), reason="needs a running Docker daemon")
 def test_cli_local_says_do_not_use(malicious_project: Path, tmp_path: Path) -> None:
     out = tmp_path / "report"

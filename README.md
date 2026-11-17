@@ -32,9 +32,10 @@ The VM or container downloads `semgrep` and `guarddog` rules and packages on the
 `python3-venv` if missing). Without internet the scan still runs the built-in heuristics but reports
 `INCONCLUSIVE - SCAN INCOMPLETE`.
 
-Droplet size: the default `--size s-2vcpu-4gb` (Basic, 4 GiB RAM, 2 vCPUs, about $24 per month, billed by the hour) is
-the smallest one recommended. Installing and running semgrep needs more memory than the 512 MiB and 1 GiB tiers have.
-Pass `--size` only to go larger for big codebases. The droplet exists for a few minutes and is destroyed after the scan.
+Droplet size: the default `--size s-2vcpu-4gb` (Basic, 4 GiB RAM, 2 vCPUs, about $24 per month) is what this tool
+requests. Smaller tiers (512 MiB, 1 GiB) are untested here; installing `semgrep` and `guarddog` is likely too heavy for
+them. Check DigitalOcean's current billing rules before a long run. The droplet exists for a few minutes and is
+destroyed after the scan.
 
 ## Install and local scan
 
