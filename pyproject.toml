@@ -1,0 +1,34 @@
+[project]
+name = "sandbox-scan"
+version = "0.1.0"
+description = "Ship an untrusted codebase to a disposable VM and scan it there (static analysis only)."
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+sandbox-scan = "sandbox_scan.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["pytest", "ruff", "ty"]
+
+[tool.ruff]
+line-length = 120
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+# remote_scanner.py is moved verbatim (dense regex tables, runs on the VM); only correctness rules apply.
+[tool.ruff.lint.per-file-ignores]
+"src/sandbox_scan/remote_scanner.py" = ["E", "UP", "SIM", "B", "I"]
+
+[tool.ty.src]
+exclude = ["src/sandbox_scan/remote_scanner.py"]
