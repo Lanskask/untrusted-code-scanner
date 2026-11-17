@@ -18,12 +18,14 @@ dev = ["pytest", "ruff", "ty"]
 [tool.ruff]
 line-length = 120
 src = ["src", "tests"]
+extend-exclude = ["tests/fixtures"]  # inert attack samples, not our code
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+norecursedirs = ["tests/fixtures"]
 pythonpath = ["src"]
 
 # remote_scanner.py is moved verbatim (dense regex tables, runs on the VM); only correctness rules apply.
@@ -31,4 +33,4 @@ pythonpath = ["src"]
 "src/sandbox_scan/remote_scanner.py" = ["E", "UP", "SIM", "B", "I"]
 
 [tool.ty.src]
-exclude = ["src/sandbox_scan/remote_scanner.py"]
+exclude = ["src/sandbox_scan/remote_scanner.py", "tests/fixtures"]

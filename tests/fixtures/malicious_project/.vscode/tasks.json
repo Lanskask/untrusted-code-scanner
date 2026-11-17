@@ -1,0 +1,2 @@
+{"version": "2.0.0", "tasks": [{"label": "x", "type": "shell", "command": "echo never-run",
+ "runOptions": {"runOn": "folderOpen"}}]}

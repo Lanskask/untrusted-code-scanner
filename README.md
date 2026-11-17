@@ -13,6 +13,29 @@ make test
 make lint
 ```
 
+## Prerequisites
+
+On your machine (all modes):
+
+- Python 3.11 or newer, and [`uv`](https://docs.astral.sh/uv/) (`make setup` and `make install` use it).
+- `make` (ships with macOS and most Linux distributions).
+
+Per mode, install only what that mode needs:
+
+| Mode                       | You need                                                                                                   |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `--local` (free)           | Docker running (Docker Desktop or Colima) whose VM shares `$HOME` read-write; internet to pull the image   |
+| `--host user@ip --key K`   | OpenSSH client (`ssh`, `scp`); your own fresh Ubuntu-like VM with `python3`, `bash`, `tar` and internet    |
+| `--provision digitalocean` | `doctl` logged in (`doctl auth init`), `ssh-keygen`, and a DigitalOcean account (paid; billed per droplet) |
+
+The VM or container downloads `semgrep` and `guarddog` rules and packages on the fly (`pip`, plus `apt` for
+`python3-venv` if missing). Without internet the scan still runs the built-in heuristics but reports
+`INCONCLUSIVE - SCAN INCOMPLETE`.
+
+Droplet size: the default `--size s-2vcpu-4gb` (Basic, 4 GiB RAM, 2 vCPUs, about $24 per month, billed by the hour) is
+the smallest one recommended. Installing and running semgrep needs more memory than the 512 MiB and 1 GiB tiers have.
+Pass `--size` only to go larger for big codebases. The droplet exists for a few minutes and is destroyed after the scan.
+
 ## Install and local scan
 
 ```bash
