@@ -66,6 +66,8 @@ def merge_findings(res: dict[str, str]) -> tuple[list[dict[str, Any]], dict[str,
             )
     else:
         notes.append("Semgrep results missing (install failed or timed out) - coverage INCOMPLETE; re-run.")
+        if err := res.get("semgrep.err", "").strip():
+            notes.append("semgrep stderr: " + clean(err[-300:]))
     for eco in ("npm", "pypi"):
         gd = load_json(res.get(f"guarddog_{eco}.json", ""))
         if not gd:
