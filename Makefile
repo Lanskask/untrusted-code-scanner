@@ -9,6 +9,12 @@ setup: ## Create the venv and install dev tools
 run: ## Scan a folder: make run ARGS="./code --host root@IP --key K"
 	uv run sandbox-scan $(ARGS)
 
+install: ## Install the `sandbox-scan` command globally (editable, runs from any folder)
+	uv tool install --editable --force .
+
+uninstall: ## Remove the global `sandbox-scan` command
+	uv tool uninstall sandbox-scan
+
 test: ## Run unit tests
 	uv run pytest -q
 
@@ -17,4 +23,4 @@ lint: ## ruff + ty
 	uv run ruff format --check src tests
 	uvx ty check src tests
 
-.PHONY: help setup run test lint
+.PHONY: help setup run install uninstall test lint

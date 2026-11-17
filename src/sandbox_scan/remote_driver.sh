@@ -14,7 +14,7 @@ fi
 if [ -x venv/bin/pip ] && venv/bin/pip install -q semgrep guarddog >pip.log 2>&1; then
   echo "tools: semgrep+guarddog installed" >> results/status.txt
   timeout 900 venv/bin/semgrep scan --config p/security-audit --metrics off --json --quiet --disable-version-check code \
-      > results/semgrep.json 2> results/semgrep.err || echo "semgrep failed/timeout" >> results/status.txt
+      > results/semgrep.json 2> results/semgrep.err || echo "semgrep failed/timeout (exit $?)" >> results/status.txt
   if find code -name package.json -not -path '*/node_modules/*' | grep -q .; then
     timeout 600 venv/bin/guarddog npm scan code --output-format json > results/guarddog_npm.json 2> results/guarddog_npm.err || true
   fi

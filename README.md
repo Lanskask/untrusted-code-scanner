@@ -13,6 +13,16 @@ make test
 make lint
 ```
 
+## Install and local scan
+
+```bash
+make install                                  # global `sandbox-scan` command (editable: keep this repo in place)
+sandbox-scan ~/Downloads/some-code --local    # free: hardened Docker container, folder is never mounted
+```
+
+`make install` puts the command in `~/.local/bin`; run `uv tool update-shell` if it is not on your `PATH`. `--local`
+needs a running Docker whose VM shares `$HOME` read-write (Docker Desktop, Colima; Lima mounts it read-only by default).
+
 Exit codes: `2` DO NOT USE, `1` suspicious or inconclusive, `0` no red flags. "Clean" never means "proven safe".
 
 ## Layout
