@@ -59,3 +59,12 @@
   the droplet is still billing plus the exact command to run.
 - Reason: the user asked whether the tool knows that only deleting stops billing. It deletes (never powers off), but it
   printed "destroyed" even when the delete failed, for example with a token without delete rights.
+
+## 2026-11-17 Research document states that it proves nothing
+
+- Decision: `docs/RESEARCH.md` is an honest engineering write-up (threat model, test-checked properties, measured runs,
+  limits, unverified comparison), not a proof of security or detection.
+- Reason: the user asked for a document proving the tool is secure and finds malicious code. Neither can be proven:
+  static analysis is undecidable in general, and the only detection evidence is a fixture written by the rule author.
+  Measured: 8 of 9 benign projects get DO NOT USE or SUSPICIOUS (mostly from `.venv`, `node_modules`, build output),
+  which the document reports as the weakest property.
