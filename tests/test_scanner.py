@@ -54,6 +54,13 @@ def test_evil_repo_trips_rules(evil: Path) -> None:
     } <= scan(evil)
 
 
+def test_binary_hidden_in_node_modules_bin_is_flagged(tmp_path: Path) -> None:
+    p = tmp_path / "node_modules/.bin/tool"
+    p.parent.mkdir(parents=True)
+    p.write_bytes(b"\x7fELF" + b"\x00" * 64)
+    assert "binary-executable" in scan(tmp_path)
+
+
 def test_clean_repo_has_no_findings(tmp_path: Path) -> None:
     write(tmp_path, "main.py", "print('hello')\n")
     write(tmp_path, "package.json", json.dumps({"scripts": {"test": "jest"}, "dependencies": {"lodash": "4"}}))

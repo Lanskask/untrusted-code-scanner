@@ -121,6 +121,10 @@ class DigitalOcean:
         return f"root@{ip}"
 
     def destroy(self) -> None:
+        if not self.droplet_id and self.ssh_key_id:
+            # create() may have died after the droplet existed (e.g. --wait timeout): find it by its unique name.
+            found = self._doctl("compute", "droplet", "list", self.name, "--format", "ID", "--no-header").split()
+            self.droplet_id = found[0] if found else None
         if self.droplet_id:
             subprocess.run(["doctl", "compute", "droplet", "delete", "-f", self.droplet_id], capture_output=True)
             log(f"[cleanup] destroyed droplet {self.droplet_id}")

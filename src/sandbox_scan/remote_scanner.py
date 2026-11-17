@@ -444,7 +444,7 @@ def main():
             if head and head != "large":
                 for magic, label in MAGIC[:5]:
                     if head.startswith(magic):
-                        if not in_deps:
+                        if not in_deps or ".bin" in parts:  # node_modules/.bin is on PATH for `npm run`
                             add("HIGH", "binary-executable", rel, 0, "%s committed to repo" % label)
                         break
             elif (
