@@ -1,0 +1,2 @@
+requestss==1.0
+--extra-index-url https://pypi.invalid/simple

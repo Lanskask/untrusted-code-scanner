@@ -126,8 +126,14 @@ class DigitalOcean:
             found = self._doctl("compute", "droplet", "list", self.name, "--format", "ID", "--no-header").split()
             self.droplet_id = found[0] if found else None
         if self.droplet_id:
-            subprocess.run(["doctl", "compute", "droplet", "delete", "-f", self.droplet_id], capture_output=True)
-            log(f"[cleanup] destroyed droplet {self.droplet_id}")
+            r = subprocess.run(
+                ["doctl", "compute", "droplet", "delete", "-f", self.droplet_id], capture_output=True, text=True
+            )
+            if r.returncode:
+                log(f"[cleanup] FAILED to delete droplet {self.droplet_id} - IT IS STILL BILLING: "
+                    f"doctl compute droplet delete {self.droplet_id}   ({clean(r.stderr.strip())})")  # fmt: skip
+            else:
+                log(f"[cleanup] destroyed droplet {self.droplet_id}")
             self.droplet_id = None
         if self.ssh_key_id:
             subprocess.run(["doctl", "compute", "ssh-key", "delete", "-f", self.ssh_key_id], capture_output=True)
