@@ -2,16 +2,19 @@
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tarfile
+from collections.abc import Callable
 from importlib import resources
 from pathlib import Path
 
 import pytest
 
+from conftest import finding
 from sandbox_scan.pack import pack
-from sandbox_scan.report import Incomplete, verdict
+from sandbox_scan.report import SEVERITIES, Finding, Incomplete, Severity, merge_findings, verdict
 from sandbox_scan.textutil import clean
 
 SCANNER = str(resources.files("sandbox_scan").joinpath("remote_scanner.py"))
@@ -77,8 +80,8 @@ def test_clean_repo_has_no_findings(tmp_path: Path) -> None:
         ([], [], "NO KNOWN RED FLAGS", 0),
     ],
 )
-def test_verdict(sevs: list[str], notes: list[str], label: str, rc: int) -> None:
-    assert verdict([{"severity": s} for s in sevs], notes) == (label, rc)
+def test_verdict(sevs: list[Severity], notes: list[str], label: str, rc: int) -> None:
+    assert verdict([finding(s) for s in sevs], notes) == (label, rc)
 
 
 def test_pack_strips_dangerous_modes(tmp_path: Path) -> None:
@@ -328,7 +331,7 @@ def test_stealer_capabilities_seen_in_third_party_samples(tmp_path: Path) -> Non
     }
 
 
-def scan_findings(root: Path) -> list[dict]:
+def scan_findings(root: Path) -> list[Finding]:
     out = subprocess.run([sys.executable, "-I", SCANNER, str(root)], capture_output=True, text=True, check=True)
     return json.loads(out.stdout)["findings"]
 
@@ -377,7 +380,7 @@ def _disguise_zip(r: Path) -> None:
         _disguise_zip,
     ],
 )
-def test_disguised_payload_never_gives_exit_0(tmp_path: Path, disguise) -> None:
+def test_disguised_payload_never_gives_exit_0(tmp_path: Path, disguise: Callable[[Path], object]) -> None:
     """docs/SECURITY-IMPROVEMENTS.md items 1-3, 6: a hostile layout may lower the severity, never to a clean exit 0."""
     disguise(tmp_path)
     findings = scan_findings(tmp_path)
@@ -431,3 +434,55 @@ def test_lockfile_on_the_public_registry_is_quiet(tmp_path: Path) -> None:
     write(tmp_path, "package-lock.json", '"resolved": "https://registry.npmjs.org/x/-/x-1.0.0.tgz",\n')
     write(tmp_path, "yarn.lock", '  resolved "https://registry.yarnpkg.com/x/-/x-1.0.0.tgz#abc"\n')
     assert "lockfile-foreign-host" not in scan(tmp_path)
+
+
+def _merge(heuristics: str) -> tuple[str, int, list[dict[str, object]]]:
+    """Run the host-side merge on a heuristics.json the VM sent (untrusted) and return verdict, exit code, findings."""
+    findings, _, notes, _ = merge_findings({"heuristics.json": heuristics, "semgrep.json": '{"results": []}'})
+    label, rc = verdict(findings, notes)
+    return label, rc, [dict(f) for f in findings]
+
+
+@pytest.mark.parametrize(
+    "heuristics",
+    [
+        '{"findings": [{"severity": "CRTICAL", "rule": "x", "file": "a", "line": 1, "detail": "d"}]}',  # typo
+        '{"findings": [{"severity": "HIGH", "rule": "x"}]}',  # missing keys
+        '{"findings": ["not a dict"]}',
+        '{"findings": "not a list"}',
+        "[1]",  # valid JSON, wrong shape
+        "{}",  # no findings key at all
+        '{"findings": [], "stats": 5}',  # coverage stats missing or wrong
+        '{"findings": [], "stats": {}, "suppressed": [1]}',
+        '{"findings": [{"severity": [], "rule": "x"}]}',  # unhashable severity
+        '{"findings": [{"severity": "HIGH", "rule": "x", "file": "a", "line": true, "detail": "d"}]}',  # bool line
+    ],
+)
+def test_malformed_vm_output_never_gives_exit_0(heuristics: str) -> None:
+    """The VM may be compromised: a finding the host cannot understand must lower trust, not vanish."""
+    label, rc, findings = _merge(heuristics)
+    assert rc != 0, (label, findings)
+    # either the scan is marked INCONCLUSIVE, or a malformed-finding line is shown
+    assert label.startswith("INCONCLUSIVE") or any(f["rule"] == "malformed-finding" for f in findings), label
+
+
+def test_wellformed_finding_passes_through() -> None:
+    _, rc, findings = _merge(
+        '{"findings": [{"severity": "MEDIUM", "rule": "x", "file": "a", "line": 3, "detail": "d", "snippet": "s"}],'
+        ' "stats": {}}'
+    )
+    assert rc == 0 and findings[0]["rule"] == "x" and findings[0]["snippet"] == "s"
+
+
+def test_scanner_and_host_agree_on_severity_names() -> None:
+    """remote_scanner.py is shipped standalone and cannot import report.py, so it repeats the Severity type."""
+    src = (Path(__file__).parent.parent / "src/sandbox_scan/remote_scanner.py").read_text()
+    m = re.search(r"^Severity = Literal\[(.*?)\]", src, re.M)
+    assert m, "remote_scanner.py must define Severity"
+    assert tuple(x.strip(" \"'") for x in m.group(1).split(",")) == SEVERITIES
+
+
+def test_malformed_critical_is_not_downgraded() -> None:
+    """A CRITICAL finding the host cannot fully read must still give exit 2, not shrink to a HIGH."""
+    label, rc, _ = _merge('{"findings": [{"severity": "CRITICAL", "rule": "x"}], "stats": {}}')
+    assert (label, rc) == ("DO NOT USE", 2)

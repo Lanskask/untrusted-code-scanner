@@ -22,8 +22,8 @@ e2e: ## Real scan of the attack fixture through Docker (~1 min, needs network)
 	uv run pytest -q -m e2e
 
 lint: ## ruff + ty
-	uv run ruff check src tests
-	uv run ruff format --check src tests
-	uvx ty check src tests
+	uv run ruff check src tests experiments
+	uv run ruff format --check src tests experiments
+	uvx ty check src tests experiments
 
 .PHONY: help setup run install uninstall test e2e lint

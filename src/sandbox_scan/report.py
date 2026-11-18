@@ -4,7 +4,7 @@ import json
 import os
 import tarfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, TypedDict, get_args
 
 from .textutil import clean, log
 
@@ -19,7 +19,18 @@ RESULT_FILES = {
     "guarddog_npm.err",
     "guarddog_pypi.err",
 }
-SEV_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+Severity = Literal["CRITICAL", "HIGH", "MEDIUM", "LOW"]  # most severe first; remote_scanner.py repeats this type
+SEVERITIES: tuple[Severity, ...] = get_args(Severity)
+SEV_ORDER: dict[Severity, int] = {s: i for i, s in enumerate(SEVERITIES)}
+
+
+class Finding(TypedDict):
+    severity: Severity
+    rule: str
+    file: str
+    line: int
+    detail: str
+    snippet: str
 
 
 class Incomplete(str):
@@ -41,37 +52,71 @@ def read_results(tgz_path: str | Path) -> dict[str, str]:
     return out
 
 
-def load_json(s: str) -> Any:
+def load_json(s: str) -> Any:  # noqa: ANN401 - arbitrary JSON
     try:
         return json.loads(s)
     except Exception:
         return None
 
 
-def merge_findings(res: dict[str, str]) -> tuple[list[dict[str, Any]], dict[str, Any], list[str], str]:
-    findings, notes = [], []
+def parse_finding(f: object) -> Finding | None:
+    """Check one finding from the VM (untrusted JSON); None if it is not a well-formed Finding."""
+    if not isinstance(f, dict):
+        return None
+    sev, line = f.get("severity"), f.get("line")
+    if not isinstance(sev, str) or sev not in SEV_ORDER or not isinstance(line, int) or isinstance(line, bool):
+        return None
+    text = [f.get(k, "" if k == "snippet" else None) for k in ("rule", "file", "detail", "snippet")]
+    if not all(isinstance(t, str) for t in text) or not f.get("rule"):
+        return None
+    return Finding(severity=sev, rule=text[0], file=text[1], line=line, detail=text[2], snippet=text[3])
+
+
+def merge_findings(res: dict[str, str]) -> tuple[list[Finding], dict[str, Any], list[str], str]:
+    findings: list[Finding] = []
+    notes: list[str] = []
     h = load_json(res.get("heuristics.json", ""))
-    if h is None:
+    if not isinstance(h, dict) or not isinstance(h.get("findings"), list):
         notes.append(Incomplete("Heuristic scanner produced no usable output - treat result as INCOMPLETE."))
         stats = {}
     else:
-        findings += h.get("findings", [])
-        stats = h.get("stats", {})
-        for rule, n in (h.get("suppressed") or {}).items():
+        parsed = [parse_finding(f) for f in h["findings"]]
+        findings += [f for f in parsed if f]
+        if bad := parsed.count(None):  # a finding we cannot read must lower trust, never vanish
+            lost_critical = any(
+                p is None and isinstance(f, dict) and f.get("severity") == "CRITICAL"
+                for p, f in zip(parsed, h["findings"], strict=True)
+            )
+            findings.append(
+                Finding(
+                    severity="CRITICAL" if lost_critical else "HIGH",
+                    rule="malformed-finding",
+                    file="(scanner output)",
+                    line=0,
+                    detail=f"{bad} finding(s) from the VM were malformed and dropped; treat the scan as unreliable",
+                    snippet="",
+                )
+            )
+        stats = h.get("stats")
+        suppressed = h.get("suppressed") or {}
+        if not isinstance(stats, dict) or not isinstance(suppressed, dict):
+            notes.append(Incomplete("Heuristic scanner stats are malformed - treat result as INCOMPLETE."))
+            stats, suppressed = {}, {}
+        for rule, n in suppressed.items():
             notes.append(f"{n} more '{rule}' hits were suppressed (per-file/per-rule caps).")
     sg = load_json(res.get("semgrep.json", ""))
     if sg:
         for r in sg.get("results", []):
             sev = (r.get("extra", {}).get("severity") or "INFO").upper()
             findings.append(
-                {
-                    "severity": "MEDIUM" if sev == "ERROR" else "LOW",
-                    "rule": "semgrep:" + r.get("check_id", "?").split(".")[-1],
-                    "file": r.get("path", "?").replace("code/", "", 1),
-                    "line": r.get("start", {}).get("line", 0),
-                    "detail": (r.get("extra", {}).get("message") or "")[:200],
-                    "snippet": "",
-                }
+                Finding(
+                    severity="MEDIUM" if sev == "ERROR" else "LOW",
+                    rule="semgrep:" + r.get("check_id", "?").split(".")[-1],
+                    file=r.get("path", "?").replace("code/", "", 1),
+                    line=r.get("start", {}).get("line", 0),
+                    detail=(r.get("extra", {}).get("message") or "")[:200],
+                    snippet="",
+                )
             )
     else:
         notes.append(Incomplete("Semgrep results missing (install failed or timed out) - coverage INCOMPLETE; re-run."))
@@ -92,14 +137,14 @@ def merge_findings(res: dict[str, str]) -> tuple[list[dict[str, Any]], dict[str,
         for rule, val in results.items():
             if val:
                 findings.append(
-                    {
-                        "severity": "HIGH",
-                        "rule": f"guarddog-{eco}:{rule}",
-                        "file": "(package)",
-                        "line": 0,
-                        "detail": "GuardDog malware heuristic matched",
-                        "snippet": json.dumps(val)[:200],
-                    }
+                    Finding(
+                        severity="HIGH",
+                        rule=f"guarddog-{eco}:{rule}",
+                        file="(package)",
+                        line=0,
+                        detail="GuardDog malware heuristic matched",
+                        snippet=json.dumps(val)[:200],
+                    )
                 )
     # dependency summaries first: render() shows only 15 MEDIUM lines and this is where a poisoned package would show
     findings.sort(
@@ -113,7 +158,7 @@ def merge_findings(res: dict[str, str]) -> tuple[list[dict[str, Any]], dict[str,
     return findings, stats, notes, res.get("status.txt", "")
 
 
-def verdict(findings: list[dict[str, Any]], notes: list[str]) -> tuple[str, int]:
+def verdict(findings: list[Finding], notes: list[str]) -> tuple[str, int]:
     sev = {f["severity"] for f in findings}
     incomplete = any(isinstance(n, Incomplete) for n in notes)
     if "CRITICAL" in sev:
@@ -169,7 +214,7 @@ NEXT_STEPS = {
 
 
 def render(
-    findings: list[dict[str, Any]], stats: dict[str, Any], notes: list[str], status: str, label: str, out_dir: Path
+    findings: list[Finding], stats: dict[str, Any], notes: list[str], status: str, label: str, out_dir: Path
 ) -> None:
     log("\n" + "=" * 72)
     log(f" VERDICT: {label}")

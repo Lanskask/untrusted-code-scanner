@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import finding
 from sandbox_scan import remote
 from sandbox_scan.local import docker_argv
 from sandbox_scan.pack import pack
@@ -71,4 +72,4 @@ def test_fail_closed_when_results_are_missing() -> None:
 
 @pytest.mark.parametrize("notes", [[], ["scan INCOMPLETE"]])
 def test_critical_always_wins(notes: list[str]) -> None:
-    assert verdict([{"severity": "CRITICAL"}], notes) == ("DO NOT USE", 2)
+    assert verdict([finding("CRITICAL")], notes) == ("DO NOT USE", 2)

@@ -5,6 +5,14 @@ from pathlib import Path
 
 import pytest
 
+from sandbox_scan.report import Finding, Severity
+
+
+def finding(severity: Severity) -> Finding:
+    """A minimal well-formed finding, for tests that only care about the severity."""
+    return Finding(severity=severity, rule="x", file="f", line=0, detail="", snippet="")
+
+
 FIXTURE = Path(__file__).parent / "fixtures" / "malicious_project"
 
 
