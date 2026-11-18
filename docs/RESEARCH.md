@@ -190,6 +190,32 @@ packages, access by request), the OpenSSF `malicious-packages` repository (OSV-f
 proof-of-concept repository. A 2026 npm benchmark reportedly gives GuardDog an F1 of 93.32 percent (arXiv 2603.27549).
 `sandbox-scan` has not been run on any of these.
 
+### 5.1 Wallet theft in real incidents (from web searches, unverified)
+
+Everything here comes from search results, not from our runs. Primary reports should be read before any figure is
+quoted.
+
+| Incident or campaign                                  | How the victim got hit                                                     | What was taken                                             |
+| ----------------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Typosquatted crypto libraries on npm (Socket, 2024)   | `npm install` of a look-alike package                                      | Exodus wallet files, MetaMask extension data, credentials  |
+| `pdf-to-office`, `nodejs-smtp` on npm (ReversingLabs) | Installed package patched the Atomic and Exodus apps on disk               | Clipper that swaps outgoing wallet addresses               |
+| BIPClip, PyPI (ReversingLabs)                         | Seven packages, 19 versions                                                | BIP39 recovery phrases (the wallet seed)                   |
+| Contagious Interview, North Korea-linked (many labs)  | Fake job "coding test": run a repo or `npm install`; `.vscode/tasks.json`  | Browser wallet keys and clipboard (BeaverTail/OtterCookie) |
+| Fake Solidity and Open VSX extensions (2025 to 2026)  | Developer installed an editor extension; one report cites a ~$500,000 loss | Seed phrases, wallet vaults, GitHub and cloud tokens       |
+
+Common route: the victim runs the code or opens the folder on the machine that also holds the browser profile with the
+wallet. Common targets: the browser extension's local storage folder (found by hard-coded extension IDs), desktop wallet
+directories, seed phrases, the clipboard (address swapping), and tokens. Common exfiltration: Telegram bots, Discord
+webhooks, analytics endpoints.
+
+What `sandbox-scan` checks for this: the rules `wallet-theft` (HIGH, wallet paths and wallet extension IDs),
+`seed-phrase-send` (MEDIUM), `crypto-address-regex` (MEDIUM, a clipper hint), `env-secret-send`, the existing
+`exfil-endpoint` and `cred-paths`, and the autorun triggers (`.vscode/tasks.json`, `postinstall`). What it cannot do:
+see obfuscated code that builds a path at run time, or stop a malicious VS Code extension (it scans folders, not
+installed extensions). The wallet extension IDs in the rule were taken from memory and public reports, not checked
+against the stores. Sources: Socket's crypto-developer reports, ReversingLabs on Atomic/Exodus and BIPClip, Silent Push
+and Group-IB on Contagious Interview, Kaspersky on the Open VSX loss, The Hacker News on Solidity Pro.
+
 ## 6. Limitations
 
 1. **No guarantee.** Static analysis cannot decide whether a program is malicious (Rice's theorem). "No known red flags"

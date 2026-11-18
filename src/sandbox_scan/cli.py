@@ -29,7 +29,7 @@ def main() -> None:
     ap.add_argument("--local", action="store_true", help="scan in a hardened local Docker container (free)")
     ap.add_argument("--provision", choices=["digitalocean"], help="create + destroy a throwaway VM for you")
     ap.add_argument("--port", type=int, help="ssh port of --host (default 22)")
-    ap.add_argument("--region", help="--provision only (default nyc1)")
+    ap.add_argument("--region", help="--provision only (default: first region that offers the size)")
     ap.add_argument("--size", help="--provision only (default s-2vcpu-4gb)")
     ap.add_argument("--keep", action="store_true", help="do not destroy the provisioned VM afterwards")
     ap.add_argument("--out", help="report output dir (default ./scan-report-<timestamp>)")
@@ -77,7 +77,7 @@ def main() -> None:
         else:
             if a.provision:
                 log("[2/5] Creating disposable DigitalOcean droplet ...")
-                provider = DigitalOcean(tmp, a.region or "nyc1", a.size or "s-2vcpu-4gb")
+                provider = DigitalOcean(tmp, a.region, a.size or "s-2vcpu-4gb")
                 host = provider.create()
                 key = provider.key
             else:

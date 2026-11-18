@@ -80,3 +80,29 @@ def test_droplet_is_destroyed_when_ssh_never_comes_up(tmp_path: Path, monkeypatc
         cli.main()
     assert e.value.code == 3
     assert destroyed == [True]  # the droplet is billing: it must go even though the scan never started
+
+
+def test_region_is_picked_from_regions_that_offer_the_size(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    regions = (
+        '[{"slug":"nyc1","available":true,"sizes":["s-1vcpu-1gb"]},'
+        '{"slug":"fra1","available":false,"sizes":["s-2vcpu-4gb"]},'
+        '{"slug":"ams3","available":true,"sizes":["s-2vcpu-4gb"]}]'
+    )
+    monkeypatch.setattr(remote.shutil, "which", lambda _: "/usr/bin/doctl")
+    monkeypatch.setattr(remote.subprocess, "run", lambda argv, **kw: subprocess.CompletedProcess(argv, 0, regions, ""))
+    assert remote.DigitalOcean(tmp_path, None, "s-2vcpu-4gb").pick_region() == "ams3"
+    assert remote.DigitalOcean(tmp_path, "nyc1", "s-2vcpu-4gb").pick_region() == "nyc1"  # an explicit choice is kept
+
+
+def test_destroy_reports_a_key_that_could_not_be_deleted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def fake_run(argv: list[str], **kw: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(argv, 1 if "ssh-key" in argv else 0, "", "404")
+
+    monkeypatch.setattr(remote.shutil, "which", lambda _: "/usr/bin/doctl")
+    monkeypatch.setattr(remote.subprocess, "run", fake_run)
+    do = remote.DigitalOcean(tmp_path, "nyc1", "s-1vcpu-1gb")
+    do.ssh_key_id = "7"
+    do.destroy()
+    assert "doctl compute ssh-key delete 7" in capsys.readouterr().out
