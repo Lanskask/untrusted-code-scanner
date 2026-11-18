@@ -176,3 +176,11 @@
   disguise gave exit 0 or 1 for a `curl | sh`. 7 disguise tests now never give exit 0. False-positive cost measured on
   13 own projects before and after: 1 flagged both times, only 13 more MEDIUM lines, no new HIGH. Skipped as not worth
   it: more obfuscation rules, dynamic analysis (`docs/SECURITY-IMPROVEMENTS.md`).
+
+## 2026-11-18 Lockfile host check
+
+- Decision: new HIGH rule `lockfile-foreign-host` for `resolved`/`tarball` URLs outside `registry.npmjs.org` and
+  `registry.yarnpkg.com` in `package-lock.json`, `npm-shrinkwrap.json`, `yarn.lock`, `pnpm-lock.yaml`.
+- Reason: security review item 7 (dependency substitution through a lockfile). Measured: 5 own lockfiles with 1976
+  `resolved` entries had 0 foreign hosts, so no false positives there. A company with a private registry will see it and
+  must read it, which is the intent.

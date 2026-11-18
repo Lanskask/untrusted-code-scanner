@@ -412,3 +412,22 @@ def test_guarddog_without_result_makes_scan_incomplete(tmp_path: Path) -> None:
         tf.add(tmp_path / "guarddog_npm.err", arcname="guarddog_npm.err")
     findings, _, notes, _ = merge_findings(read_results(tgz))
     assert any(isinstance(n, Incomplete) and "guarddog (npm)" in n for n in notes)
+
+
+@pytest.mark.parametrize(
+    "name,line",
+    [
+        ("package-lock.json", '"resolved": "https://evil.invalid/x/-/x-1.0.0.tgz",'),
+        ("yarn.lock", '  resolved "https://evil.invalid/x-1.0.0.tgz#abc"'),
+        ("pnpm-lock.yaml", "    resolution: {tarball: https://evil.invalid/x-1.0.0.tgz}"),
+    ],
+)
+def test_lockfile_pointing_off_the_registry_is_high(tmp_path: Path, name: str, line: str) -> None:
+    write(tmp_path, name, line + "\n")
+    assert any(f["rule"] == "lockfile-foreign-host" and f["severity"] == "HIGH" for f in scan_findings(tmp_path))
+
+
+def test_lockfile_on_the_public_registry_is_quiet(tmp_path: Path) -> None:
+    write(tmp_path, "package-lock.json", '"resolved": "https://registry.npmjs.org/x/-/x-1.0.0.tgz",\n')
+    write(tmp_path, "yarn.lock", '  resolved "https://registry.yarnpkg.com/x/-/x-1.0.0.tgz#abc"\n')
+    assert "lockfile-foreign-host" not in scan(tmp_path)

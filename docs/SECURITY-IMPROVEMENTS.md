@@ -53,7 +53,7 @@ Ranking is by certainty gained per unit of work. Effort: S is under a day with a
 
 ## Worth doing
 
-Status 2026-11-18: items 1 to 5 below are done (`docs/DECISION-LOG.md`). Not done: the lockfile `resolved`-host check.
+Status 2026-11-18: items 1 to 5 below are done (`docs/DECISION-LOG.md`). The lockfile `resolved`-host check is done too.
 
 These five give the most certainty for the least work. All are S and none changes the design.
 
