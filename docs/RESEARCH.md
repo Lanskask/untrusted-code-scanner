@@ -101,10 +101,13 @@ rate.
   driver now keeps stderr and retries once. While Semgrep is missing the verdict is INCONCLUSIVE, never clean.
 - `destroy()` printed "destroyed" when `doctl ... delete` had failed. Now it reports the failure and the command to stop
   billing.
-- Semgrep, second look: after the retry and the stderr capture (`semgrep.err` was only now shipped back to the report)
-  the fixture was scanned 5 times in parallel in local containers. All 5 had no semgrep failure. The earlier failures
-  happened while the first image pull and installs were running, so a network or load cause is plausible, but it was not
-  reproduced and the cause stays unknown.
+- Semgrep, second look: the failure could not be reproduced. In one container with the tool's exact limits (2 GB memory,
+  512 pids, all capabilities dropped), semgrep 1.186.0 ran 15 times alone, then 12 times installed together with
+  GuardDog, then 12 times with the `escape_link` symlink to `/etc` in the scanned folder: 39 of 39 runs exited 0 with
+  the same output size. Five full parallel scans also had no failure. The earlier 3 failures in about 7 runs all
+  happened in the first runs, when the image, pip packages and the `p/security-audit` rules were being downloaded, so a
+  transient network failure is the most likely cause, but that is a guess. Mitigation: one retry, stderr of semgrep and
+  GuardDog shipped back and shown in the report, and a failed run makes the verdict INCONCLUSIVE, never clean.
 - Also measured: a reverse shell planted in `node_modules` yields one MEDIUM `dependency-findings` line; semgrep and
   GuardDog report nothing there.
 
@@ -231,7 +234,8 @@ and Group-IB on Contagious Interview, Kaspersky on the Open VSX loss, The Hacker
 8. **Untested paths:** DigitalOcean provisioning has never run against a real droplet; only fake-`doctl` unit tests
    cover it. The SSH/`scp` mode is tested end to end against a local sshd container, not a real VM. GuardDog's JSON
    shape is parsed defensively and was seen only through the fixture.
-9. **Semgrep flakiness** (section 4.2): 3 failures in about 7 runs earlier, 0 in 5 later; cause unknown.
+9. **Semgrep flakiness** (section 4.2): 3 failures in about 7 early runs, 0 in 44 later runs; cause unknown, probably a
+   transient download failure.
 10. **DigitalOcean run measured once.** `--provision digitalocean` on the fixture gave DO NOT USE and destroyed its
     droplet; `doctl compute droplet list` was empty afterwards. The first attempt failed because the default size was
     not offered in `nyc1` (fixed by picking the region at run time). The ssh key stays in `doctl compute ssh-key list`
