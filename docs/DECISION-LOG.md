@@ -146,3 +146,12 @@
 - Reason: measured. On 11 projects the rules had never seen, 7 were flagged; reading each finding showed prose, a config
   loader, a test string and a git-hook installer (`docs/RESEARCH.md` section 4.3). After: 3 of 18 flagged, all with a
   reason to read. The earlier 0 of 9 was a fit to the tuning set.
+
+## 2026-11-18 Second tuning round and new stealer-capability rules
+
+- Decision: `reverse-shell` matches `os.dup2` only on a socket-like name; `persistence` needs `~/.profile` or
+  `/.profile`; `npx only-allow` and `enquirer` are skipped; new MEDIUM rules `clipboard-read`, `screen-capture`,
+  `env-dump`; Ruby `Net::HTTP`/`HTTParty`/`RestClient` and `ENV[...]` join `env-secret-send`.
+- Reason: measured on 10 fresh projects (7 flagged before, 6 after, all by design) and on GuardDog's 33 sample files (22
+  hit before, 28 after; only 10 reach HIGH). More HIGH rules would raise recall but the benign sets show where it costs:
+  `proc-spawn` and `dyn-exec` stay MEDIUM.
