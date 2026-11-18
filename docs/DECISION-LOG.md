@@ -67,9 +67,9 @@
   listing the rules seen and their counts. Kept as HIGH: binaries in `node_modules/.bin`, and symlinks leaving the
   project, except a venv link to a `python*` executable.
 - Reason: measured in `docs/RESEARCH.md`: 8 of 9 benign projects got DO NOT USE or SUSPICIOUS, almost all from these
-  folders. Trade-off accepted by the user: a malicious package inside `node_modules` now shows as MEDIUM only (semgrep
-  and GuardDog still run on it), so a MEDIUM `dependency-findings` line with `reverse-shell` or `pipe-to-shell` deserves
-  a manual look.
+  folders. Trade-off accepted by the user: a malicious package inside `node_modules` now shows as MEDIUM only (measured
+  by `make e2e`: semgrep and GuardDog reported nothing under `node_modules` for the fixture, so do not count on them
+  there), so a MEDIUM `dependency-findings` line with `reverse-shell` or `pipe-to-shell` deserves a manual look.
 
 ## 2026-11-17 Research document states that it proves nothing
 
@@ -79,3 +79,40 @@
   static analysis is undecidable in general, and the only detection evidence is a fixture written by the rule author.
   Measured: 8 of 9 benign projects get DO NOT USE or SUSPICIOUS (mostly from `.venv`, `node_modules`, build output),
   which the document reports as the weakest property.
+
+## 2026-11-18 `env-exfil` flags only the whole environment
+
+- Decision: the rule matches `os.environ` or `process.env` only when not followed by `.`, `[` or a word character, next
+  to a network call (`dict(os.environ)`, `JSON.stringify(process.env)`); `getenv` was dropped.
+- Reason: measured. Reading one named variable beside `fetch(` fired on ordinary Next.js code (`EDU_Platform`). Accepted
+  cost: one secret sent by name (`+process.env.NPM_TOKEN`) is no longer caught by this rule; `exfil-endpoint` still
+  covers known endpoints. Data-flow analysis is out of reach for a line scanner.
+
+## 2026-11-18 Bidi characters in non-code files, and object files, are MEDIUM
+
+- Decision: `trojan-source` is MEDIUM outside code files (HIGH in code). A Mach-O `MH_OBJECT` or ELF `ET_REL` file is a
+  MEDIUM `binary-artifact`; real executables stay HIGH. The header decides, never the `.o` name.
+- Reason: measured. Scraped JSON data and compiler output caused the last 2 of 9 benign projects to be flagged. After
+  these changes `experiments/benign_fp.py` flags 0 of 9.
+
+## 2026-11-18 Reject flags the chosen mode would ignore; `--port`; swapped-letter typosquats
+
+- Decision: `--key`, `--port` need `--host`; `--region`, `--size`, `--keep` need `--provision`; otherwise the CLI exits.
+  `lev1` also accepts two adjacent swapped letters. `semgrep.err` is shipped back. `dependency-findings` lines sort
+  first among MEDIUM lines.
+- Reason: a silently ignored `--keep` or `--key` is a surprise on a tool that handles untrusted code. `semgrep.err` was
+  read by `report.py` but never in `RESULT_FILES`, so the stderr note could not appear. `render()` shows only 15 MEDIUM
+  lines sorted by name, which could hide the dependency summary.
+
+## 2026-11-18 `--host` is tested end to end against a local sshd container
+
+- Decision: `tests/test_e2e_ssh.py` runs the real `ssh`/`scp` path against a throwaway container on `127.0.0.1`.
+  DigitalOcean is covered only by unit tests (including: the droplet is destroyed when ssh never comes up).
+- Reason: real droplets cost money and the owner's rule is to show cloud commands and wait. The ssh transport, `--port`,
+  the driver script and the report are the same code on both paths.
+
+## 2026-11-18 Not changed: the `INCOMPLETE` check and wandb symlinks
+
+- Decision: `verdict()` still detects an incomplete scan by the substring; links out of the project stay HIGH.
+- Reason: every note that could contain the word only makes the verdict stricter, and two tests pin it. A symlink out of
+  a project can point at `~/.ssh`, so it is a true finding; it was not measured on the 9 projects after the fix.

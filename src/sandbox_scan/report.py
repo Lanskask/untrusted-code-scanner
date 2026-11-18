@@ -15,6 +15,7 @@ RESULT_FILES = {
     "guarddog_pypi.json",
     "status.txt",
     "heuristics.err",
+    "semgrep.err",
 }
 SEV_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 
@@ -85,7 +86,15 @@ def merge_findings(res: dict[str, str]) -> tuple[list[dict[str, Any]], dict[str,
                         "snippet": json.dumps(val)[:200],
                     }
                 )
-    findings.sort(key=lambda f: (SEV_ORDER.get(f["severity"], 9), f["file"], f.get("line", 0)))
+    # dependency summaries first: render() shows only 15 MEDIUM lines and this is where a poisoned package would show
+    findings.sort(
+        key=lambda f: (
+            SEV_ORDER.get(f["severity"], 9),
+            f["rule"] != "dependency-findings",
+            f["file"],
+            f.get("line", 0),
+        )
+    )
     return findings, stats, notes, res.get("status.txt", "")
 
 

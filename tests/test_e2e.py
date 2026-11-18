@@ -57,4 +57,14 @@ def test_cli_local_says_do_not_use(malicious_project: Path, tmp_path: Path) -> N
     rep = json.loads((out / "report.json").read_text())
     assert rep["verdict"] == "DO NOT USE"
     assert {f["rule"] for f in rep["findings"]} >= EXPECTED
+    dep = [f for f in rep["findings"] if f["rule"] == "dependency-findings" and f["file"] == "node_modules"]
+    assert dep and "reverse-shell" in dep[0]["detail"]  # the poisoned package shows up as a summary line
+    print(
+        "tool findings under node_modules:",
+        [
+            f["rule"]
+            for f in rep["findings"]
+            if f["rule"].startswith(("semgrep", "guarddog")) and f["file"].startswith("node_modules")
+        ],
+    )
     assert tree_hash(malicious_project) == before  # never modified, never mounted

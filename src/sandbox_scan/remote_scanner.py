@@ -67,6 +67,12 @@ CODE_EXT = {
 CODE_NAMES = {"Makefile", "makefile", "Dockerfile", "justfile", "Rakefile", "Gemfile", "Taskfile.yml"}
 
 # (rule id, severity, regex, description, code_only)
+# Only the WHOLE environment (os.environ, dict(os.environ), JSON.stringify(process.env)) counts: reading one named
+# variable next to a request is what every web app does. A single secret sent by name is not caught here.
+_ENV = r"(os\.environ|process\.env)(?![\w.\[])"
+_NET = r"(requests\.(post|get|put)|urlopen|urllib|fetch\(|axios|http\.request|XMLHttpRequest)"
+ENV_EXFIL = _ENV + r"[^\n]{0,160}" + _NET + "|" + _NET + r"[^\n]{0,160}" + _ENV
+
 LINE_RULES = [
     (
         "pipe-to-shell",
@@ -127,7 +133,7 @@ LINE_RULES = [
     (
         "env-exfil",
         "HIGH",
-        r"(os\.environ|process\.env|getenv)[^\n]{0,160}(requests\.(post|get|put)|urlopen|urllib|fetch\(|axios|http\.request|XMLHttpRequest)|(requests\.(post|get|put)|urlopen|fetch\(|axios|http\.request|XMLHttpRequest)[^\n]{0,160}(os\.environ|process\.env|getenv)",
+        ENV_EXFIL,
         "env vars sent over network",
         False,
     ),
@@ -226,7 +232,10 @@ def lev1(a, b):
     if a == b or abs(len(a) - len(b)) > 1:
         return False
     if len(a) == len(b):
-        return sum(x != y for x, y in zip(a, b)) == 1
+        diff = [i for i, (x, y) in enumerate(zip(a, b)) if x != y]
+        if len(diff) == 2 and diff[1] == diff[0] + 1:  # two adjacent letters swapped
+            return a[diff[0]] == b[diff[1]] and a[diff[1]] == b[diff[0]]
+        return len(diff) == 1
     if len(a) > len(b):
         a, b = b, a
     for i in range(len(b)):
@@ -264,8 +273,17 @@ def read_text(path):
         stats["skipped_large"] += 1
         return None, "large"
     if b"\x00" in raw[:8000]:
-        return None, raw[:8]
-    return raw.decode("utf-8", "replace"), raw[:8]
+        return None, raw[:20]
+    return raw.decode("utf-8", "replace"), raw[:20]
+
+
+def is_object_file(head):
+    """Relocatable object (.o): Mach-O MH_OBJECT or ELF ET_REL. Not runnable, so only MEDIUM."""
+    if head[:4] in (b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe") and len(head) >= 16:
+        return int.from_bytes(head[12:16], "little") == 1
+    if head[:4] == b"\x7fELF" and len(head) >= 18:
+        return int.from_bytes(head[16:18], "little" if head[5] == 1 else "big") == 1
+    return False
 
 
 MAGIC = [
@@ -464,6 +482,10 @@ def main():
             if head and head != "large":
                 for magic, label in MAGIC[:5]:
                     if head.startswith(magic):
+                        if is_object_file(head):
+                            if not in_deps:
+                                add("MEDIUM", "binary-artifact", rel, 0, "compiled object file in repo")
+                            break
                         if ".bin" in parts:
                             cur_dep = None  # node_modules/.bin is on PATH for `npm run`: never summarized away
                         add("HIGH", "binary-executable", rel, 0, "%s committed to repo" % label)
@@ -496,6 +518,8 @@ def main():
                     continue
                 if in_deps and sev not in ("CRITICAL", "HIGH"):
                     continue
+                if rid == "trojan-source" and not is_code:
+                    sev = "MEDIUM"  # bidi chars in scraped data are common; in code they hide logic
                 if rid == "long-b64-blob" and ext in (".lock", ".json", ".svg", ".map"):
                     continue
                 if rid == "pkg-source-override" and not re.search(
