@@ -120,20 +120,43 @@ The heuristic scanner alone (no Semgrep or GuardDog) was run on 9 of the author'
 | `tiny_triaging_layer`   | 145   | 0        | 0    | clean                                                                           |
 | `Looking_for_a_Job`     | 744   | 0        | 1    | 1 `trojan-source` in a scraped JSON data file                                   |
 
-Result: **8 of 9 benign projects would receive DO NOT USE or SUSPICIOUS; only 1 of 9 is clean.** Four of them would be
-DO NOT USE purely because they contain a Python virtual environment. Causes:
+Result before the fix: **8 of 9 benign projects would receive DO NOT USE or SUSPICIOUS; only 1 of 9 is clean.** Four of
+them would be DO NOT USE purely because they contain a Python virtual environment. Causes:
 
-- Dependency folders are scanned for CRITICAL and HIGH line rules by design, because a poisoned dependency is a real
+- Dependency folders were scanned for CRITICAL and HIGH line rules by design, because a poisoned dependency is a real
   attack route. Ordinary libraries contain `pipe-to-shell` text, `persistence` strings (`.bashrc`) and `exec(compile(`
-  in their code. Every virtual environment also has `bin/python` symlinks that point outside the project, which fires
+  in their code. Every virtual environment also has `bin/python` symlinks that point outside the project, which fired
   `symlink-escape`.
-- Build output (`target/release`, `.next`) is reported as "committed to repo".
+- Build output (`target/release`, `.next`) was reported as "committed to repo".
 - `env-exfil` fires on any line that mixes `process.env` and `fetch(`.
 
-This is the weakest measured property of the tool: the precision on ordinary projects is poor, which pushes users toward
-ignoring the verdict. The tool is only practical today on code received without its dependency or build folders. The
-false-positive rate on a real corpus has not been measured beyond these 9; the projects are not independent (same
-author, similar stacks).
+#### After the fix (PR #5)
+
+CRITICAL and HIGH hits inside dependency and build folders now become one MEDIUM `dependency-findings` line per folder.
+Binaries in `node_modules/.bin` and symlinks that leave the project stay HIGH, except a venv link to a `python*`
+executable. The same heuristic scanner was re-run on the same 9 projects:
+
+| Project                 | CRITICAL | HIGH | MEDIUM | What is left                        |
+| ----------------------- | -------- | ---- | ------ | ----------------------------------- |
+| `EDU_Platform`          | 0        | 6    | 2      | 6 `env-exfil`                       |
+| `Price_of_Living`       | 0        | 0    | 1      |                                     |
+| `fast-jira-replacement` | 0        | 0    | 1      |                                     |
+| `instagram_summariser`  | 0        | 0    | 131    |                                     |
+| `lean-be-service`       | 0        | 0    | 83     |                                     |
+| `software_factory`      | 0        | 0    | 57     |                                     |
+| `thumbnail-generator`   | 0        | 0    | 61     |                                     |
+| `tiny_triaging_layer`   | 0        | 0    | 0      |                                     |
+| `Looking_for_a_Job`     | 0        | 1    | 16     | 1 `trojan-source` in a scraped JSON |
+
+**2 of 9 are now SUSPICIOUS (was 8 of 9), none is DO NOT USE.** Both remaining cases come from rules that fire on
+ordinary code, not from folders. `lean-be-service` went from 6063 to 777 scanned files between the two runs; the cause
+was not checked (the project may have changed in between).
+
+The weak spot of this fix: it was measured only on benign projects. A malicious package inside `node_modules` now shows
+as MEDIUM, not CRITICAL. The malicious fixture and the hostile-link tests still pass, but they do not plant an attack
+inside a dependency folder, so how well that case is caught is untested. Semgrep and GuardDog still run on those
+folders. The false-positive rate beyond these 9 has not been measured; the projects are not independent (same author,
+similar stacks).
 
 ## 5. Comparison with existing tools
 
@@ -163,10 +186,11 @@ proof-of-concept repository. A 2026 npm benchmark reportedly gives GuardDog an F
    means exactly that.
 2. **No detection rate.** There is no measured recall on real malware and no benchmark run.
 3. **Line-based rules** miss patterns split over lines, and encodings or obfuscation outside the patterns.
-4. **High false-positive rate on projects that ship dependencies or build output** (section 4.3).
+4. **False positives:** reduced on projects that ship dependencies or build output (section 4.3), still 2 of 9 benign
+   projects flagged.
 5. **Typosquat check** uses a small name list and misses swapped letters (`lodahs` for `lodash`).
-6. **Dependency folders** (`node_modules`, `vendor`, `.venv`) get only the CRITICAL and HIGH line rules, and executables
-   count only under `.bin`; MEDIUM rules and other binaries are skipped there.
+6. **Dependency and build folders** (`node_modules`, `vendor`, `.venv`, `target`, `dist` and similar) are reduced to one
+   MEDIUM summary line each; individual hits there are not reported, so a poisoned dependency is easier to miss.
 7. **Container isolation** shares the host kernel. For stronger isolation use `--provision` or a VM.
 8. **Untested paths:** the SSH/`scp` mode and DigitalOcean provisioning have never run against a real VM; only
    fake-`doctl` unit tests cover them. GuardDog's JSON shape is parsed defensively and was seen only through the
