@@ -53,6 +53,8 @@ Ranking is by certainty gained per unit of work. Effort: S is under a day with a
 
 ## Worth doing
 
+Status 2026-11-18: items 1 to 5 below are done (`docs/DECISION-LOG.md`). Not done: the lockfile `resolved`-host check.
+
 These five give the most certainty for the least work. All are S and none changes the design.
 
 1. **Fail closed per file (item 1).** Wrap the per-file body of `main()` in `try/except Exception` and add a HIGH

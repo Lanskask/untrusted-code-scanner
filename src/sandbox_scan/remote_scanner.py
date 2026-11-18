@@ -17,13 +17,20 @@ stats = {"files": 0, "text_files": 0, "binary_files": 0, "symlinks": 0, "skipped
 # Dependency and build-output folders are full of benign "scary" text and binaries. Their CRITICAL/HIGH hits are
 # counted per folder and reported as ONE medium line, instead of drowning the real findings.
 DEP_DIRS = ("node_modules", "site-packages", "vendor", "third_party", ".venv", "venv")
+ARCHIVE_EXT = (".zip", ".tar", ".tgz", ".gz", ".bz2", ".xz", ".7z", ".rar")
 BUILD_DIRS = ("target", "cargo-target", ".next", "dist", "build", "out")
 dep_hits = {}  # dep folder -> {rule: count}
 cur_dep = None  # set per file in main(); None = report normally
 
 
 def add(sev, rule, rel, line, detail, snippet=""):
-    if cur_dep and sev in ("CRITICAL", "HIGH"):
+    if (
+        cur_dep
+        and sev == "CRITICAL"
+        and os.path.basename(cur_dep) not in ("node_modules", "site-packages", ".venv", "venv")
+    ):
+        sev = "HIGH"  # a payload in dist/ or vendor/ must not shrink to one MEDIUM line; shown as HIGH, not summarized
+    elif cur_dep and sev in ("CRITICAL", "HIGH"):
         hits = dep_hits.setdefault(cur_dep, {})
         hits[rule] = hits.get(rule, 0) + 1
         return
@@ -330,6 +337,8 @@ def read_text(path):
     if len(raw) > 2_000_000:
         stats["skipped_large"] += 1
         return None, "large"
+    if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return raw.decode("utf-16", "replace"), raw[:20]
     if b"\x00" in raw[:8000]:
         return None, raw[:20]
     return raw.decode("utf-8", "replace"), raw[:20]
@@ -515,93 +524,106 @@ def handle_symlink(p):
         add(sev, "symlink-escape", rel, 0, "symlink points outside the project: %s" % tgt)
 
 
+def scan_one(p):
+    global cur_dep
+    cur_dep = None
+    rel = os.path.relpath(p, ROOT).replace(os.sep, "/")
+    name = os.path.basename(p)
+    if any(ord(c) in range(0x202A, 0x202F) or ord(c) in range(0x2066, 0x206A) for c in rel):
+        add("HIGH", "trojan-source-filename", rel, 0, "bidi control char in file NAME (disguised extension)")
+    if os.path.islink(p):
+        handle_symlink(p)
+        return
+    try:
+        st = os.lstat(p)
+    except OSError:
+        return
+    if not stat.S_ISREG(st.st_mode):
+        add("MEDIUM", "special-file", rel, 0, "non-regular file (fifo/socket/device)")
+        return
+    stats["files"] += 1
+    parts = rel.split("/")
+    in_deps = any(x in DEP_DIRS for x in parts)
+    top = next((i for i, x in enumerate(parts[:-1]) if x in DEP_DIRS + BUILD_DIRS), None)
+    if top is not None:
+        in_deps = True
+        cur_dep = "/".join(parts[: top + 1])
+    text, head = read_text(p)
+    if text is None:
+        stats["binary_files"] += 1
+        ext = os.path.splitext(name)[1].lower()
+        if not in_deps and (head == "large" or ext in ARCHIVE_EXT or ext in CODE_EXT):
+            why = "over 2 MB" if head == "large" else "archive" if ext in ARCHIVE_EXT else "code file with NUL bytes"
+            add("MEDIUM", "unscanned-file", rel, 0, "content not inspected (%s); review it by hand" % why)
+        if head and head != "large":
+            for magic, label in MAGIC[:5]:
+                if head.startswith(magic):
+                    if is_object_file(head):
+                        if not in_deps:
+                            add("MEDIUM", "binary-artifact", rel, 0, "compiled object file in repo")
+                        break
+                    if ".bin" in parts:
+                        cur_dep = None  # node_modules/.bin is on PATH for `npm run`: never summarized away
+                    add("HIGH", "binary-executable", rel, 0, "%s committed to repo" % label)
+                    break
+        elif (
+            st.st_size
+            and name.lower().endswith(
+                (".exe", ".dll", ".so", ".dylib", ".node", ".jar", ".class", ".pyc", ".whl", ".msi", ".scr", ".bin")
+            )
+            and not in_deps
+        ):
+            add("MEDIUM", "binary-artifact", rel, 0, "binary artifact in repo")
+        return
+    stats["text_files"] += 1
+    ext = os.path.splitext(name)[1].lower()
+    is_code = ext in CODE_EXT or name in CODE_NAMES or text.startswith("#!")
+    structural(rel, name, text, in_deps)
+    hex_names = 0
+    for i, line in enumerate(text.split("\n"), 1):
+        if len(line) > 20000:
+            if not in_deps:
+                add("MEDIUM", "minified-giant-line", rel, i, "single line >20k chars (minified/obfuscated?)")
+            line = line[:20000]
+        if "_0x" in line:
+            hex_names += len(re.findall(r"\b_0x[a-f0-9]{4,6}\b", line))
+        for rid, sev, rx, desc, code_only in LINE_RULES:
+            if code_only and not is_code:
+                continue
+            if in_deps and sev not in ("CRITICAL", "HIGH"):
+                continue
+            if ext in (".md", ".rst", ".adoc") and sev in ("CRITICAL", "HIGH") and rid != "trojan-source":
+                sev = "MEDIUM"  # prose that quotes `curl | sh` or ~/.ssh does not run; still listed
+            if rid == "trojan-source" and not is_code:
+                sev = "MEDIUM"  # bidi chars in scraped data are common; in code they hide logic
+            if rid == "long-b64-blob" and ext in (".lock", ".json", ".svg", ".map"):
+                continue
+            if rid == "pkg-source-override" and not re.search(
+                r"(requirements|\.npmrc|\.yarnrc|pip\.conf|\.txt$)", rel, re.I
+            ):
+                continue
+            m = rx.search(line)
+            if m:
+                s = max(0, m.start() - 20)
+                add(sev, rid, rel, i, desc, line[s : s + 160])
+    if hex_names >= 10 and not in_deps:
+        add(
+            "HIGH",
+            "obfuscated-js",
+            rel,
+            0,
+            "%d identifiers of the form _0x1234 (javascript-obfuscator style)" % hex_names,
+        )
+
+
 def main():
     global cur_dep
     for p in walk():
-        cur_dep = None
-        rel = os.path.relpath(p, ROOT).replace(os.sep, "/")
-        name = os.path.basename(p)
-        if any(ord(c) in range(0x202A, 0x202F) or ord(c) in range(0x2066, 0x206A) for c in rel):
-            add("HIGH", "trojan-source-filename", rel, 0, "bidi control char in file NAME (disguised extension)")
-        if os.path.islink(p):
-            handle_symlink(p)
-            continue
         try:
-            st = os.lstat(p)
-        except OSError:
-            continue
-        if not stat.S_ISREG(st.st_mode):
-            add("MEDIUM", "special-file", rel, 0, "non-regular file (fifo/socket/device)")
-            continue
-        stats["files"] += 1
-        parts = rel.split("/")
-        in_deps = any(x in DEP_DIRS for x in parts)
-        top = next((i for i, x in enumerate(parts[:-1]) if x in DEP_DIRS + BUILD_DIRS), None)
-        if top is not None:
-            in_deps = True
-            cur_dep = "/".join(parts[: top + 1])
-        text, head = read_text(p)
-        if text is None:
-            stats["binary_files"] += 1
-            if head and head != "large":
-                for magic, label in MAGIC[:5]:
-                    if head.startswith(magic):
-                        if is_object_file(head):
-                            if not in_deps:
-                                add("MEDIUM", "binary-artifact", rel, 0, "compiled object file in repo")
-                            break
-                        if ".bin" in parts:
-                            cur_dep = None  # node_modules/.bin is on PATH for `npm run`: never summarized away
-                        add("HIGH", "binary-executable", rel, 0, "%s committed to repo" % label)
-                        break
-            elif (
-                st.st_size
-                and name.lower().endswith(
-                    (".exe", ".dll", ".so", ".dylib", ".node", ".jar", ".class", ".pyc", ".whl", ".msi", ".scr", ".bin")
-                )
-                and not in_deps
-            ):
-                add("MEDIUM", "binary-artifact", rel, 0, "binary artifact in repo")
-            continue
-        stats["text_files"] += 1
-        ext = os.path.splitext(name)[1].lower()
-        is_code = ext in CODE_EXT or name in CODE_NAMES or text.startswith("#!")
-        structural(rel, name, text, in_deps)
-        hex_names = 0
-        for i, line in enumerate(text.split("\n"), 1):
-            if len(line) > 20000:
-                if not in_deps:
-                    add("MEDIUM", "minified-giant-line", rel, i, "single line >20k chars (minified/obfuscated?)")
-                line = line[:20000]
-            if "_0x" in line:
-                hex_names += len(re.findall(r"\b_0x[a-f0-9]{4,6}\b", line))
-            for rid, sev, rx, desc, code_only in LINE_RULES:
-                if code_only and not is_code:
-                    continue
-                if in_deps and sev not in ("CRITICAL", "HIGH"):
-                    continue
-                if ext in (".md", ".rst", ".adoc") and sev in ("CRITICAL", "HIGH") and rid != "trojan-source":
-                    sev = "MEDIUM"  # prose that quotes `curl | sh` or ~/.ssh does not run; still listed
-                if rid == "trojan-source" and not is_code:
-                    sev = "MEDIUM"  # bidi chars in scraped data are common; in code they hide logic
-                if rid == "long-b64-blob" and ext in (".lock", ".json", ".svg", ".map"):
-                    continue
-                if rid == "pkg-source-override" and not re.search(
-                    r"(requirements|\.npmrc|\.yarnrc|pip\.conf|\.txt$)", rel, re.I
-                ):
-                    continue
-                m = rx.search(line)
-                if m:
-                    s = max(0, m.start() - 20)
-                    add(sev, rid, rel, i, desc, line[s : s + 160])
-        if hex_names >= 10 and not in_deps:
-            add(
-                "HIGH",
-                "obfuscated-js",
-                rel,
-                0,
-                "%d identifiers of the form _0x1234 (javascript-obfuscator style)" % hex_names,
-            )
+            scan_one(p)
+        except Exception as e:  # fail closed: a crash on one file is itself a finding, never a lost scan
+            cur_dep = None
+            add("HIGH", "scanner-error", os.path.relpath(p, ROOT), 0, "scanner crashed on this file: %r" % e)
     for d, hits in dep_hits.items():
         seen = ", ".join("%s x%d" % kv for kv in sorted(hits.items()))
         add("MEDIUM", "dependency-findings", d, 0, "not inspected individually; patterns seen inside: " + seen)

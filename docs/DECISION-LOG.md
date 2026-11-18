@@ -165,3 +165,14 @@
   undecidable (Rice's theorem), so no scanner can certify "safe". Measured: 2 real DigitalOcean runs gave DO NOT USE and
   left no droplet (`docs/RESEARCH.md` section 4.4); 97 unit and 2 end-to-end tests pass. Further ideas are listed in
   `docs/SECURITY-IMPROVEMENTS.md`.
+
+## 2026-11-18 Fail closed on hostile layouts (items 1 to 4 of the security review)
+
+- Decision: a crash on one file gives a HIGH `scanner-error` instead of losing the scan; `dist`, `build`, `vendor` and
+  similar folders keep CRITICAL as HIGH (only `node_modules`, `site-packages`, `.venv`, `venv` are fully summarized);
+  files over 2 MB, archives and code files with NUL bytes give a MEDIUM `unscanned-file` and a "Not inspected" report
+  line; UTF-16 files with a BOM are decoded; a GuardDog run with no result makes the scan INCOMPLETE.
+- Reason: measured. A `package.json` of `[1]` crashed the scanner (reproduced), and the review's probes showed each
+  disguise gave exit 0 or 1 for a `curl | sh`. 7 disguise tests now never give exit 0. False-positive cost measured on
+  13 own projects before and after: 1 flagged both times, only 13 more MEDIUM lines, no new HIGH. Skipped as not worth
+  it: more obfuscation rules, dynamic analysis (`docs/SECURITY-IMPROVEMENTS.md`).

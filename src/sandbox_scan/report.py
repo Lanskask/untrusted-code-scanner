@@ -80,8 +80,13 @@ def merge_findings(res: dict[str, str]) -> tuple[list[dict[str, Any]], dict[str,
     for eco in ("npm", "pypi"):
         gd = load_json(res.get(f"guarddog_{eco}.json", ""))
         if not gd:
-            if err := res.get(f"guarddog_{eco}.err", "").strip():  # it ran (the file exists) but gave no result
-                notes.append(f"guarddog ({eco}) stderr: " + clean(err[-300:]))
+            if f"guarddog_{eco}.err" in res:  # the driver ran it (the file exists) but it gave no result
+                err = clean(res[f"guarddog_{eco}.err"].strip()[-300:])
+                notes.append(
+                    Incomplete(
+                        f"guarddog ({eco}) gave no result - coverage INCOMPLETE" + (f"; stderr: {err}" if err else "")
+                    )
+                )
             continue
         results = gd.get("results") or {}
         for rule, val in results.items():
@@ -175,6 +180,8 @@ def render(
         f"binary {stats.get('binary_files', '?')}, symlinks {stats.get('symlinks', '?')})"
     )
     log(" Findings: " + ", ".join(f"{k}={v}" for k, v in counts.items()))
+    if n := sum(1 for f in findings if f["rule"] == "unscanned-file"):
+        log(f" Not inspected: {n} file(s) (large, archive or unreadable); see the unscanned-file lines")
     if status.strip():
         log(" Remote status: " + clean(status.strip().replace("\n", " | ")))
     for n in notes:
