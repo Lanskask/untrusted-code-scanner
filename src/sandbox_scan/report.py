@@ -63,10 +63,10 @@ def parse_finding(f: object) -> Finding | None:
     """Check one finding from the VM (untrusted JSON); None if it is not a well-formed Finding."""
     if not isinstance(f, dict):
         return None
-    sev, line = f.get("severity"), f.get("line", 0)
-    if sev not in SEV_ORDER or not isinstance(line, int) or isinstance(line, bool):
+    sev, line = f.get("severity"), f.get("line")
+    if not isinstance(sev, str) or sev not in SEV_ORDER or not isinstance(line, int) or isinstance(line, bool):
         return None
-    text = [f.get(k, "") for k in ("rule", "file", "detail", "snippet")]
+    text = [f.get(k, "" if k == "snippet" else None) for k in ("rule", "file", "detail", "snippet")]
     if not all(isinstance(t, str) for t in text) or not f.get("rule"):
         return None
     return Finding(severity=sev, rule=text[0], file=text[1], line=line, detail=text[2], snippet=text[3])
@@ -76,18 +76,20 @@ def merge_findings(res: dict[str, str]) -> tuple[list[Finding], dict[str, Any], 
     findings: list[Finding] = []
     notes: list[str] = []
     h = load_json(res.get("heuristics.json", ""))
-    if not isinstance(h, dict):
+    if not isinstance(h, dict) or not isinstance(h.get("findings"), list):
         notes.append(Incomplete("Heuristic scanner produced no usable output - treat result as INCOMPLETE."))
         stats = {}
     else:
-        raw = h.get("findings", [])
-        raw = raw if isinstance(raw, list) else [None]
-        parsed = [parse_finding(f) for f in raw]
+        parsed = [parse_finding(f) for f in h["findings"]]
         findings += [f for f in parsed if f]
         if bad := parsed.count(None):  # a finding we cannot read must lower trust, never vanish
+            lost_critical = any(
+                p is None and isinstance(f, dict) and f.get("severity") == "CRITICAL"
+                for p, f in zip(parsed, h["findings"], strict=True)
+            )
             findings.append(
                 Finding(
-                    severity="HIGH",
+                    severity="CRITICAL" if lost_critical else "HIGH",
                     rule="malformed-finding",
                     file="(scanner output)",
                     line=0,
@@ -95,8 +97,12 @@ def merge_findings(res: dict[str, str]) -> tuple[list[Finding], dict[str, Any], 
                     snippet="",
                 )
             )
-        stats = h.get("stats") if isinstance(h.get("stats"), dict) else {}
-        for rule, n in (h.get("suppressed") or {}).items():
+        stats = h.get("stats")
+        suppressed = h.get("suppressed") or {}
+        if not isinstance(stats, dict) or not isinstance(suppressed, dict):
+            notes.append(Incomplete("Heuristic scanner stats are malformed - treat result as INCOMPLETE."))
+            stats, suppressed = {}, {}
+        for rule, n in suppressed.items():
             notes.append(f"{n} more '{rule}' hits were suppressed (per-file/per-rule caps).")
     sg = load_json(res.get("semgrep.json", ""))
     if sg:
