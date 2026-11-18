@@ -14,9 +14,19 @@ ROOT = os.path.abspath(sys.argv[1])
 findings, per_file, per_rule = [], {}, {}
 suppressed = {}
 stats = {"files": 0, "text_files": 0, "binary_files": 0, "symlinks": 0, "skipped_large": 0}
+# Dependency and build-output folders are full of benign "scary" text and binaries. Their CRITICAL/HIGH hits are
+# counted per folder and reported as ONE medium line, instead of drowning the real findings.
+DEP_DIRS = ("node_modules", "site-packages", "vendor", "third_party", ".venv", "venv")
+BUILD_DIRS = ("target", "cargo-target", ".next", "dist", "build", "out")
+dep_hits = {}  # dep folder -> {rule: count}
+cur_dep = None  # set per file in main(); None = report normally
 
 
 def add(sev, rule, rel, line, detail, snippet=""):
+    if cur_dep and sev in ("CRITICAL", "HIGH"):
+        hits = dep_hits.setdefault(cur_dep, {})
+        hits[rule] = hits.get(rule, 0) + 1
+        return
     kf, kr = (rule, rel), rule
     per_file[kf] = per_file.get(kf, 0) + 1
     per_rule[kr] = per_rule.get(kr, 0) + 1
@@ -408,6 +418,8 @@ def walk():
 
 
 def handle_symlink(p):
+    global cur_dep
+    cur_dep = None  # walk() calls this between files; a symlink escape is never summarized away
     stats["symlinks"] += 1
     rel = os.path.relpath(p, ROOT)
     try:
@@ -415,12 +427,16 @@ def handle_symlink(p):
         real = os.path.realpath(p)
     except OSError:
         return
-    if not (real == ROOT or real.startswith(ROOT + os.sep)):
+    # a venv's bin/python -> the system python is normal; any other link out of the project is not
+    venv_python = any(x in (".venv", "venv") for x in rel.split("/")) and os.path.basename(tgt).startswith("python")
+    if not (real == ROOT or real.startswith(ROOT + os.sep)) and not venv_python:
         add("HIGH", "symlink-escape", rel, 0, "symlink points outside the project: %s" % tgt)
 
 
 def main():
+    global cur_dep
     for p in walk():
+        cur_dep = None
         rel = os.path.relpath(p, ROOT).replace(os.sep, "/")
         name = os.path.basename(p)
         if any(ord(c) in range(0x202A, 0x202F) or ord(c) in range(0x2066, 0x206A) for c in rel):
@@ -437,15 +453,20 @@ def main():
             continue
         stats["files"] += 1
         parts = rel.split("/")
-        in_deps = any(x in ("node_modules", "site-packages", "vendor", "third_party", ".venv", "venv") for x in parts)
+        in_deps = any(x in DEP_DIRS for x in parts)
+        top = next((i for i, x in enumerate(parts[:-1]) if x in DEP_DIRS + BUILD_DIRS), None)
+        if top is not None:
+            in_deps = True
+            cur_dep = "/".join(parts[: top + 1])
         text, head = read_text(p)
         if text is None:
             stats["binary_files"] += 1
             if head and head != "large":
                 for magic, label in MAGIC[:5]:
                     if head.startswith(magic):
-                        if not in_deps or ".bin" in parts:  # node_modules/.bin is on PATH for `npm run`
-                            add("HIGH", "binary-executable", rel, 0, "%s committed to repo" % label)
+                        if ".bin" in parts:
+                            cur_dep = None  # node_modules/.bin is on PATH for `npm run`: never summarized away
+                        add("HIGH", "binary-executable", rel, 0, "%s committed to repo" % label)
                         break
             elif (
                 st.st_size
@@ -493,6 +514,9 @@ def main():
                 0,
                 "%d identifiers of the form _0x1234 (javascript-obfuscator style)" % hex_names,
             )
+    for d, hits in dep_hits.items():
+        seen = ", ".join("%s x%d" % kv for kv in sorted(hits.items()))
+        add("MEDIUM", "dependency-findings", d, 0, "not inspected individually; patterns seen inside: " + seen)
     json.dump({"stats": stats, "findings": findings, "suppressed": suppressed}, sys.stdout)
 
 
