@@ -155,3 +155,13 @@
 - Reason: measured on 10 fresh projects (7 flagged before, 6 after, all by design) and on GuardDog's 33 sample files (22
   hit before, 28 after; only 10 reach HIGH). More HIGH rules would raise recall but the benign sets show where it costs:
   `proc-spawn` and `dyn-exec` stay MEDIUM.
+
+## 2026-11-18 Project declared finished; one decision rule
+
+- Decision: the project is finished at the current feature set. The README states one rule: exit 2 means do not open it;
+  exit 0 means no known red flags, and unknown code is still opened only in a disposable environment. Open items
+  (semgrep flakiness, by-design false positives, duplicate `guarddog-npm`/`guarddog-pypi` findings) are not worked on.
+- Reason: my requirement (an "enough" tool, no endless work) and a theorem: whether arbitrary code is harmful is
+  undecidable (Rice's theorem), so no scanner can certify "safe". Measured: 2 real DigitalOcean runs gave DO NOT USE and
+  left no droplet (`docs/RESEARCH.md` section 4.4); 97 unit and 2 end-to-end tests pass. Further ideas are listed in
+  `docs/SECURITY-IMPROVEMENTS.md`.

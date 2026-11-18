@@ -207,6 +207,22 @@ Costs, stated plainly:
 - One secret sent by name (`+process.env.NPM_TOKEN`) is no longer caught by `env-exfil`.
 - Only benign projects were measured. The malicious fixture still gives DO NOT USE.
 
+### 4.4 Second real DigitalOcean run
+
+`uv run sandbox-scan tests/fixtures/malicious_project --provision digitalocean` on 2026-11-18, run by the owner:
+
+| Check                                   | Result                                                           |
+| --------------------------------------- | ---------------------------------------------------------------- |
+| Exit code and verdict                   | 2, DO NOT USE (as expected)                                      |
+| Findings                                | CRITICAL=8, HIGH=43, MEDIUM=5, LOW=1 (16 files, 0 binary)        |
+| Remote status                           | `tools: semgrep+guarddog installed`                              |
+| Droplet destroyed                       | log said `[cleanup] destroyed droplet 620539179`; list was empty |
+| `doctl compute droplet list` afterwards | empty (checked by the owner)                                     |
+
+HIGH is 3 above the local run in 4.1 (40) because of the extra GuardDog matches on this run. Noise to know about: about
+24 of the 43 HIGH findings are the same GuardDog match reported once as `guarddog-npm:*` and once as `guarddog-pypi:*`,
+even for Python-only files. It does not change the verdict.
+
 ## 5. Comparison with existing tools
 
 Everything in this section comes from web searches and from general knowledge, and is **unverified**: no tool below was
@@ -278,16 +294,16 @@ and Group-IB on Contagious Interview, Kaspersky on the Open VSX loss, The Hacker
 6. **Dependency and build folders** (`node_modules`, `vendor`, `.venv`, `target`, `dist` and similar) are reduced to one
    MEDIUM summary line each; individual hits there are not reported, so a poisoned dependency is easier to miss.
 7. **Container isolation** shares the host kernel. For stronger isolation use `--provision` or a VM.
-8. **Untested paths:** DigitalOcean provisioning has never run against a real droplet; only fake-`doctl` unit tests
-   cover it. The SSH/`scp` mode is tested end to end against a local sshd container, not a real VM. GuardDog's JSON
-   shape is parsed defensively and was seen only through the fixture.
+8. **Untested paths:** the SSH/`scp` mode is tested end to end against a local sshd container, not a real VM. GuardDog's
+   JSON shape is parsed defensively and was seen only through the fixture.
 9. **Semgrep flakiness** (section 4.2): 3 failures in about 7 early runs, 0 in 44 later runs; cause unknown, probably a
    transient download failure.
-10. **DigitalOcean run measured once.** `--provision digitalocean` on the fixture gave DO NOT USE and destroyed its
-    droplet; `doctl compute droplet list` was empty afterwards. The first attempt failed because the default size was
-    not offered in `nyc1` (fixed by picking the region at run time). The ssh key stays in `doctl compute ssh-key list`
-    for a while after a successful delete (observed for several minutes), then disappears. One run is not a reliability
-    measure.
+10. **DigitalOcean run measured twice.** `--provision digitalocean` on the fixture gave DO NOT USE and destroyed its
+    droplet both times; `doctl compute droplet list` was empty afterwards (second run: 2026-11-18, exit 2, CRITICAL=8,
+    HIGH=43, MEDIUM=5, LOW=1, semgrep and GuardDog both installed). Two runs on the same fixture. The first attempt
+    failed because the default size was not offered in `nyc1` (fixed by picking the region at run time). The ssh key
+    stays in `doctl compute ssh-key list` for a while after a successful delete (observed for several minutes), then
+    disappears. Two runs are not a reliability measure.
 
 ## 7. Is this article-worthy?
 
