@@ -101,6 +101,12 @@ rate.
   driver now keeps stderr and retries once. While Semgrep is missing the verdict is INCONCLUSIVE, never clean.
 - `destroy()` printed "destroyed" when `doctl ... delete` had failed. Now it reports the failure and the command to stop
   billing.
+- Semgrep, second look: after the retry and the stderr capture (`semgrep.err` was only now shipped back to the report)
+  the fixture was scanned 5 times in parallel in local containers. All 5 had no semgrep failure. The earlier failures
+  happened while the first image pull and installs were running, so a network or load cause is plausible, but it was not
+  reproduced and the cause stays unknown.
+- Also measured: a reverse shell planted in `node_modules` yields one MEDIUM `dependency-findings` line; semgrep and
+  GuardDog report nothing there.
 
 ### 4.3 Benign projects (false positives)
 
@@ -199,7 +205,9 @@ proof-of-concept repository. A 2026 npm benchmark reportedly gives GuardDog an F
 8. **Untested paths:** DigitalOcean provisioning has never run against a real droplet; only fake-`doctl` unit tests
    cover it. The SSH/`scp` mode is tested end to end against a local sshd container, not a real VM. GuardDog's JSON
    shape is parsed defensively and was seen only through the fixture.
-9. **Semgrep flakiness** (section 4.2) is unexplained.
+9. **Semgrep flakiness** (section 4.2): 3 failures in about 7 runs earlier, 0 in 5 later; cause unknown.
+10. **Not run for real:** `--provision digitalocean` (a droplet would cost money and the run was not permitted in this
+    session).
 
 ## 7. Is this article-worthy?
 

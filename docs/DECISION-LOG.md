@@ -111,8 +111,14 @@
 - Reason: real droplets cost money and the owner's rule is to show cloud commands and wait. The ssh transport, `--port`,
   the driver script and the report are the same code on both paths.
 
-## 2026-11-18 Not changed: the `INCOMPLETE` check and wandb symlinks
+## 2026-11-18 Incomplete scans are a type, symlink escapes depend on the target, results tar is capped
 
-- Decision: `verdict()` still detects an incomplete scan by the substring; links out of the project stay HIGH.
-- Reason: every note that could contain the word only makes the verdict stricter, and two tests pin it. A symlink out of
-  a project can point at `~/.ssh`, so it is a true finding; it was not measured on the 9 projects after the fix.
+- Decision: `verdict()` reads `isinstance(note, Incomplete)` instead of searching the text for `INCOMPLETE`.
+  `symlink-escape` is HIGH when the target is sensitive (`.ssh`, `.aws`, `.gnupg`, `.kube`, `/etc`, `/root`, `/proc`,
+  credentials files) and MEDIUM otherwise. `read_results` stops after 100 archive members. A new MEDIUM rule
+  `env-secret-send` covers one secret-named variable (`TOKEN`, `SECRET`, `PASSW`, `KEY`, `CREDENTIAL`) next to a network
+  call, the case the narrowed `env-exfil` no longer reports.
+- Reason: a quoted word in a note must not change a verdict; wandb run logs link to a cache directory and flagged
+  projects as HIGH; a compromised VM could return an enormous tar; the `env-exfil` change left a gap. `env-secret-send`
+  stays MEDIUM because legitimate code does `fetch(url, {headers: {Authorization: process.env.KEY}})`.
+- Not done: running `--provision digitalocean` for real (see `docs/RESEARCH.md` section 6).
