@@ -5,7 +5,7 @@ Shipped as a file, not imported: `cli.py` uploads it and the VM runs `python3 sc
 
 import os, re, sys, json, stat
 from collections.abc import Iterator, Sequence
-from typing import Any
+from typing import Literal, TypedDict
 
 try:
     import tomllib
@@ -13,7 +13,19 @@ except Exception:
     tomllib = None
 
 ROOT = os.path.abspath(sys.argv[1])
-findings: list[dict[str, Any]] = []
+Severity = Literal["CRITICAL", "HIGH", "MEDIUM", "LOW"]  # same as report.py (a test checks they match)
+
+
+class Finding(TypedDict):
+    severity: Severity
+    rule: str
+    file: str
+    line: int
+    detail: str
+    snippet: str
+
+
+findings: list[Finding] = []
 per_file: dict[tuple[str, str], int] = {}
 per_rule: dict[str, int] = {}
 suppressed: dict[str, int] = {}
@@ -28,7 +40,7 @@ dep_hits: dict[str, dict[str, int]] = {}  # dep folder -> {rule: count}
 cur_dep: str | None = None  # set per file in main(); None = report normally
 
 
-def add(sev: str, rule: str, rel: str, line: int, detail: str, snippet: str = "") -> None:
+def add(sev: Severity, rule: str, rel: str, line: int, detail: str, snippet: str = "") -> None:
     if (
         cur_dep
         and sev == "CRITICAL"
@@ -45,9 +57,7 @@ def add(sev: str, rule: str, rel: str, line: int, detail: str, snippet: str = ""
     if per_file[kf] > 5 or per_rule[kr] > 60:
         suppressed[rule] = suppressed.get(rule, 0) + 1
         return
-    findings.append(
-        {"severity": sev, "rule": rule, "file": rel, "line": line, "detail": detail, "snippet": snippet.strip()[:200]}
-    )
+    findings.append(Finding(severity=sev, rule=rule, file=rel, line=line, detail=detail, snippet=snippet.strip()[:200]))
 
 
 CODE_EXT = {
@@ -102,7 +112,7 @@ _SEND = r"(fetch\(|axios|requests\.(post|put)|http\.request|XMLHttpRequest|api\.
 SEED_SEND = _SEED + r"[^\n]{0,160}" + _SEND + "|" + _SEND + r"[^\n]{0,160}" + _SEED
 _ADDR = r"0x\[a-fA-F0-9\]\{40\}|\[13\]\[a-km-zA-HJ-NP-Z1-9\]\{25,34\}"
 
-_RAW_RULES: list[tuple[str, str, str, str, bool]] = [
+_RAW_RULES: list[tuple[str, Severity, str, str, bool]] = [
     (
         "clipboard-read",
         "MEDIUM",
@@ -278,7 +288,7 @@ _RAW_RULES: list[tuple[str, str, str, str, bool]] = [
         False,
     ),
 ]
-LINE_RULES: list[tuple[str, str, re.Pattern[str], str, bool]] = [
+LINE_RULES: list[tuple[str, Severity, re.Pattern[str], str, bool]] = [
     (i, s, re.compile(r, re.I if i in ("powershell-enc", "powershell-dl-exec", "cred-paths") else 0), d, c)
     for (i, s, r, d, c) in _RAW_RULES
 ]
