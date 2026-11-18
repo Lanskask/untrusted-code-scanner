@@ -4,6 +4,8 @@ Shipped as a file, not imported: `cli.py` uploads it and the VM runs `python3 sc
 """
 
 import os, re, sys, json, stat
+from collections.abc import Iterator, Sequence
+from typing import Any
 
 try:
     import tomllib
@@ -11,20 +13,22 @@ except Exception:
     tomllib = None
 
 ROOT = os.path.abspath(sys.argv[1])
-findings, per_file, per_rule = [], {}, {}
-suppressed = {}
-stats = {"files": 0, "text_files": 0, "binary_files": 0, "symlinks": 0, "skipped_large": 0}
+findings: list[dict[str, Any]] = []
+per_file: dict[tuple[str, str], int] = {}
+per_rule: dict[str, int] = {}
+suppressed: dict[str, int] = {}
+stats: dict[str, int] = {"files": 0, "text_files": 0, "binary_files": 0, "symlinks": 0, "skipped_large": 0}
 # Dependency and build-output folders are full of benign "scary" text and binaries. Their CRITICAL/HIGH hits are
 # counted per folder and reported as ONE medium line, instead of drowning the real findings.
 DEP_DIRS = ("node_modules", "site-packages", "vendor", "third_party", ".venv", "venv")
 LOCKFILES = ("package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml")
 ARCHIVE_EXT = (".zip", ".tar", ".tgz", ".gz", ".bz2", ".xz", ".7z", ".rar")
 BUILD_DIRS = ("target", "cargo-target", ".next", "dist", "build", "out")
-dep_hits = {}  # dep folder -> {rule: count}
-cur_dep = None  # set per file in main(); None = report normally
+dep_hits: dict[str, dict[str, int]] = {}  # dep folder -> {rule: count}
+cur_dep: str | None = None  # set per file in main(); None = report normally
 
 
-def add(sev, rule, rel, line, detail, snippet=""):
+def add(sev: str, rule: str, rel: str, line: int, detail: str, snippet: str = "") -> None:
     if (
         cur_dep
         and sev == "CRITICAL"
@@ -98,7 +102,7 @@ _SEND = r"(fetch\(|axios|requests\.(post|put)|http\.request|XMLHttpRequest|api\.
 SEED_SEND = _SEED + r"[^\n]{0,160}" + _SEND + "|" + _SEND + r"[^\n]{0,160}" + _SEED
 _ADDR = r"0x\[a-fA-F0-9\]\{40\}|\[13\]\[a-km-zA-HJ-NP-Z1-9\]\{25,34\}"
 
-LINE_RULES = [
+_RAW_RULES: list[tuple[str, str, str, str, bool]] = [
     (
         "clipboard-read",
         "MEDIUM",
@@ -274,9 +278,9 @@ LINE_RULES = [
         False,
     ),
 ]
-LINE_RULES = [
+LINE_RULES: list[tuple[str, str, re.Pattern[str], str, bool]] = [
     (i, s, re.compile(r, re.I if i in ("powershell-enc", "powershell-dl-exec", "cred-paths") else 0), d, c)
-    for (i, s, r, d, c) in LINE_RULES
+    for (i, s, r, d, c) in _RAW_RULES
 ]
 
 POP_NPM = """react lodash express axios chalk commander moment request debug webpack typescript eslint prettier jquery vue next dotenv uuid async underscore bluebird yargs glob rimraf mkdirp minimist colors cross-env jest mocha socket.io mongoose body-parser cors redux tslib semver inquirer node-fetch ws rxjs classnames puppeteer nodemon passport jsonwebtoken bcrypt sequelize""".split()
@@ -297,7 +301,7 @@ SAFE_LIFECYCLE = {"husky", "husky install", "patch-package", "node-gyp rebuild"}
 LIFECYCLE = {"preinstall", "install", "postinstall", "prepublish", "prepare", "preprepare", "postprepare"}
 
 
-def lev1(a, b):
+def lev1(a: str, b: str) -> bool:
     """True if edit distance between a and b is exactly 1."""
     if a == b or abs(len(a) - len(b)) > 1:
         return False
@@ -317,7 +321,7 @@ def lev1(a, b):
 KNOWN_LEGIT = {"preact", "enquirer"}  # real packages one edit from a popular one; extend only with evidence
 
 
-def typosquat(names, popular, eco, rel):
+def typosquat(names: Sequence[str], popular: Sequence[str], eco: str, rel: str) -> None:
     pop = set(popular)
     for n in names:
         n0 = n.lower().replace("_", "-").replace(".", "-") if eco == "pypi" else n.lower()
@@ -336,7 +340,7 @@ def typosquat(names, popular, eco, rel):
                 break
 
 
-def read_text(path):
+def read_text(path: str) -> tuple[str | None, bytes | str | None]:  # 2nd item: first bytes, or "large"
     try:
         with open(path, "rb") as f:
             raw = f.read(2_000_001)
@@ -352,7 +356,7 @@ def read_text(path):
     return raw.decode("utf-8", "replace"), raw[:20]
 
 
-def is_object_file(head):
+def is_object_file(head: bytes) -> bool:
     """Relocatable object (.o): Mach-O MH_OBJECT or ELF ET_REL. Not runnable, so only MEDIUM."""
     if head[:4] in (b"\xcf\xfa\xed\xfe", b"\xce\xfa\xed\xfe") and len(head) >= 16:
         return int.from_bytes(head[12:16], "little") == 1
@@ -371,7 +375,7 @@ MAGIC = [
 ]
 
 
-def structural(rel, name, text, in_deps):
+def structural(rel: str, name: str, text: str, in_deps: bool) -> None:
     parts = rel.split("/")
     low = name.lower()
     if in_deps:
@@ -498,7 +502,7 @@ def structural(rel, name, text, in_deps):
             add("HIGH", "git-config-exec", rel, 0, ".git/config contains settings that can execute commands")
 
 
-def walk():
+def walk() -> Iterator[str]:
     for dirpath, dirnames, filenames in os.walk(ROOT, followlinks=False):
         # report symlinked dirs (os.walk lists them in dirnames but does not follow)
         for d in list(dirnames):
@@ -515,7 +519,7 @@ SENSITIVE = re.compile(
 )
 
 
-def handle_symlink(p):
+def handle_symlink(p: str) -> None:
     global cur_dep
     cur_dep = None  # walk() calls this between files; a symlink escape is never summarized away
     stats["symlinks"] += 1
@@ -532,7 +536,7 @@ def handle_symlink(p):
         add(sev, "symlink-escape", rel, 0, "symlink points outside the project: %s" % tgt)
 
 
-def scan_one(p):
+def scan_one(p: str) -> None:
     global cur_dep
     cur_dep = None
     rel = os.path.relpath(p, ROOT).replace(os.sep, "/")
@@ -563,7 +567,7 @@ def scan_one(p):
         if not in_deps and (head == "large" or ext in ARCHIVE_EXT or ext in CODE_EXT):
             why = "over 2 MB" if head == "large" else "archive" if ext in ARCHIVE_EXT else "code file with NUL bytes"
             add("MEDIUM", "unscanned-file", rel, 0, "content not inspected (%s); review it by hand" % why)
-        if head and head != "large":
+        if isinstance(head, bytes) and head:
             for magic, label in MAGIC[:5]:
                 if head.startswith(magic):
                     if is_object_file(head):
@@ -626,7 +630,7 @@ def scan_one(p):
         )
 
 
-def main():
+def main() -> None:
     global cur_dep
     for p in walk():
         try:

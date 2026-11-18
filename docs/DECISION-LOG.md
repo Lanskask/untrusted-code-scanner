@@ -184,3 +184,13 @@
 - Reason: security review item 7 (dependency substitution through a lockfile). Measured: 5 own lockfiles with 1976
   `resolved` entries had 0 foreign hosts, so no false positives there. A company with a private registry will see it and
   must read it, which is the intent.
+
+## 2026-11-18 Type annotations enforced by ruff and ty
+
+- Decision: ruff rule set `ANN` is on (every function argument and return type must be annotated), and `ty` now also
+  checks `remote_scanner.py` and `experiments/`. Module-level containers in `remote_scanner.py` are annotated; local
+  variables are left to inference.
+- Reason: my requirement (typed code, checked by tools; the `python-pro` skill says "type hints for all function
+  signatures" and "never ignore ty errors"). Measured: turning `ty` on for the scanner found 6 real type issues
+  (`LINE_RULES` was assigned twice with different types, `read_text` returns `bytes` or the string `"large"`), all fixed
+  without changing behavior. The one `Any` (`load_json`) has a `noqa` because it parses arbitrary JSON.

@@ -21,7 +21,7 @@ src = ["src", "tests"]
 extend-exclude = ["tests/fixtures"]  # inert attack samples, not our code
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+select = ["E", "F", "I", "UP", "B", "SIM", "ANN"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -34,4 +34,4 @@ pythonpath = ["src"]
 "src/sandbox_scan/remote_scanner.py" = ["E", "UP", "SIM", "B", "I"]
 
 [tool.ty.src]
-exclude = ["src/sandbox_scan/remote_scanner.py", "tests/fixtures"]
+exclude = ["tests/fixtures"]

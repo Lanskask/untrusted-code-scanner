@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import tarfile
+from collections.abc import Callable
 from importlib import resources
 from pathlib import Path
 
@@ -377,7 +378,7 @@ def _disguise_zip(r: Path) -> None:
         _disguise_zip,
     ],
 )
-def test_disguised_payload_never_gives_exit_0(tmp_path: Path, disguise) -> None:
+def test_disguised_payload_never_gives_exit_0(tmp_path: Path, disguise: Callable[[Path], object]) -> None:
     """docs/SECURITY-IMPROVEMENTS.md items 1-3, 6: a hostile layout may lower the severity, never to a clean exit 0."""
     disguise(tmp_path)
     findings = scan_findings(tmp_path)

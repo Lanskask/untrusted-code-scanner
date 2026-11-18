@@ -41,7 +41,7 @@ def read_results(tgz_path: str | Path) -> dict[str, str]:
     return out
 
 
-def load_json(s: str) -> Any:
+def load_json(s: str) -> Any:  # noqa: ANN401 - arbitrary JSON
     try:
         return json.loads(s)
     except Exception:
