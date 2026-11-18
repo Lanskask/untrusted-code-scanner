@@ -17,7 +17,7 @@ EXPECTED = {
     "devcontainer-privileged", "direnv", "npmrc-script-shell", "python-autoload", "pipe-to-shell", "reverse-shell",
     "b64-pipe-shell", "chmod-exec-tmp", "b64-exec", "cred-paths", "env-exfil", "exfil-endpoint", "cryptominer",
     "persistence", "powershell-dl-exec", "trojan-source", "symlink-escape", "git-hook", "git-config-exec",
-    "binary-executable",
+    "binary-executable", "wallet-theft",
 }  # fmt: skip
 
 

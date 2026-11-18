@@ -1,6 +1,7 @@
 """ssh/scp transport and the optional DigitalOcean provisioner."""
 
 import datetime
+import json
 import shutil
 import subprocess
 import time
@@ -73,10 +74,10 @@ class Remote:
 # DigitalOcean provisioning (via doctl). Optional.
 # --------------------------------------------------------------------------- #
 class DigitalOcean:
-    def __init__(self, tmp: str | Path, region: str, size: str) -> None:
+    def __init__(self, tmp: str | Path, region: str | None, size: str) -> None:
         if not shutil.which("doctl"):
             raise SystemExit("doctl not found. Install it and run `doctl auth init`, or use --host.")
-        self.tmp, self.region, self.size = Path(tmp), region, size
+        self.tmp, self.region, self.size = Path(tmp), region, size  # region None = pick at create()
         self.key = self.tmp / "ephemeral_ed25519"
         self.droplet_id: str | None = None
         self.ssh_key_id: str | None = None
@@ -88,7 +89,18 @@ class DigitalOcean:
             raise RuntimeError("doctl " + " ".join(a[:3]) + " failed: " + clean(r.stderr))
         return r.stdout.strip()
 
+    def pick_region(self) -> str:
+        """Keep an explicit --region; otherwise the first available region that offers the size (it varies by day)."""
+        if self.region:
+            return self.region
+        regions = json.loads(self._doctl("compute", "region", "list", "-o", "json"))
+        for r in regions:
+            if r.get("available") and self.size in r.get("sizes", []):
+                return str(r["slug"])
+        raise RuntimeError(f"no available DigitalOcean region offers size {self.size}; pick one with --size/--region")
+
     def create(self) -> str:
+        self.region = self.pick_region()
         subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(self.key)], check=True)
         self.ssh_key_id = self._doctl(
             "compute",
@@ -138,5 +150,10 @@ class DigitalOcean:
                 log(f"[cleanup] destroyed droplet {self.droplet_id}")
             self.droplet_id = None
         if self.ssh_key_id:
-            subprocess.run(["doctl", "compute", "ssh-key", "delete", "-f", self.ssh_key_id], capture_output=True)
+            r = subprocess.run(
+                ["doctl", "compute", "ssh-key", "delete", "-f", self.ssh_key_id], capture_output=True, text=True
+            )
+            if r.returncode:  # a public key costs nothing, but a silent leak is still a leak
+                log(f"[cleanup] could not delete ssh key {self.ssh_key_id}: doctl compute ssh-key delete "
+                    f"{self.ssh_key_id}   ({clean(r.stderr.strip())})")  # fmt: skip
             self.ssh_key_id = None

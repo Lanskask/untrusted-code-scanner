@@ -122,3 +122,11 @@
   projects as HIGH; a compromised VM could return an enormous tar; the `env-exfil` change left a gap. `env-secret-send`
   stays MEDIUM because legitimate code does `fetch(url, {headers: {Authorization: process.env.KEY}})`.
 - Not done: running `--provision digitalocean` for real (see `docs/RESEARCH.md` section 6).
+
+## 2026-11-18 Wallet-theft rules; DigitalOcean region picked at run time
+
+- Decision: new rules `wallet-theft` (HIGH), `seed-phrase-send` and `crypto-address-regex` (MEDIUM). `--provision` picks
+  the first available region that offers the size unless `--region` is given. A failed ssh-key delete is reported.
+- Reason: the user asked about wallet-stealing code (research in `docs/RESEARCH.md` section 5.1). The first real
+  `--provision` run failed with `Size is not available in this region` in the default `nyc1`: availability changes, so a
+  fixed default region is a bug found only by running it.

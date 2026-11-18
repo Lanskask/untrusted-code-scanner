@@ -76,7 +76,22 @@ ENV_EXFIL = _ENV + r"[^\n]{0,160}" + _NET + "|" + _NET + r"[^\n]{0,160}" + _ENV
 _SECRET_VAR = r"(os\.environ(\.get\(|\[)|process\.env\.|getenv\()['\"]?\w*(TOKEN|SECRET|PASSW|KEY|CREDENTIAL)\w*"
 ENV_SECRET_SEND = _SECRET_VAR + r"[^\n]{0,160}" + _NET + "|" + _NET + r"[^\n]{0,160}" + _SECRET_VAR
 
+# Browser-extension IDs of MetaMask, Phantom, Coinbase Wallet and Binance Wallet are from public reports/memory and were
+# NOT checked against the stores; wallet paths follow the campaigns cited in docs/RESEARCH.md section 5.
+_WALLET = (
+    r"(nkbihfbeogaeaoehlefnkodbefgpgknn|bfnaelmomeimhlpmgjnjophhpkkoljpa|hnfanknocfeofbddgcijnmhnfnkdnaad"
+    r"|fhbohimaelbohpjbbldcngcnapndodjp|exodus\.wallet|\.electrum|electrum/wallets|\.config/solana/id\.json"
+    r"|atomic/Local Storage|Coinomi|UTC--\d{4}-\d\d-\d\dT)"
+)
+_SEED = r"(mnemonic|seed[ _]?phrase|recovery[ _]?phrase|private[ _]?key)"
+_SEND = r"(fetch\(|axios|requests\.(post|put)|http\.request|XMLHttpRequest|api\.telegram\.org|discord(app)?\.com/api/webhooks)"
+SEED_SEND = _SEED + r"[^\n]{0,160}" + _SEND + "|" + _SEND + r"[^\n]{0,160}" + _SEED
+_ADDR = r"0x\[a-fA-F0-9\]\{40\}|\[13\]\[a-km-zA-HJ-NP-Z1-9\]\{25,34\}"
+
 LINE_RULES = [
+    ("wallet-theft", "HIGH", _WALLET, "reads crypto-wallet files or wallet browser-extension data", False),
+    ("seed-phrase-send", "MEDIUM", SEED_SEND, "seed phrase / private key next to a network call", True),
+    ("crypto-address-regex", "MEDIUM", _ADDR, "crypto-address pattern in code (address-swapping clipper?)", True),
     (
         "env-secret-send",
         "MEDIUM",
