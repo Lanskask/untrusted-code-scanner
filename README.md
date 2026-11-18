@@ -4,6 +4,11 @@ Ship an untrusted codebase to a disposable VM, scan it there (static analysis on
 executed), pull back a report and get a verdict with next steps. `HANDOFF.md` is the original single-file design note
 (historical; the code now lives in `src/sandbox_scan/`).
 
+## How to read the verdict
+
+Exit 2 (DO NOT USE): do not open, run or install it. Exit 0: no known red flags, which is not proof of safety (static
+scanning cannot prove that); open unknown code in a VM or devcontainer anyway.
+
 ## Usage
 
 ```bash
