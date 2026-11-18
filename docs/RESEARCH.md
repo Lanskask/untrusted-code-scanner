@@ -232,8 +232,11 @@ and Group-IB on Contagious Interview, Kaspersky on the Open VSX loss, The Hacker
    cover it. The SSH/`scp` mode is tested end to end against a local sshd container, not a real VM. GuardDog's JSON
    shape is parsed defensively and was seen only through the fixture.
 9. **Semgrep flakiness** (section 4.2): 3 failures in about 7 runs earlier, 0 in 5 later; cause unknown.
-10. **Not run for real:** `--provision digitalocean` (a droplet would cost money and the run was not permitted in this
-    session).
+10. **DigitalOcean run measured once.** `--provision digitalocean` on the fixture gave DO NOT USE and destroyed its
+    droplet; `doctl compute droplet list` was empty afterwards. The first attempt failed because the default size was
+    not offered in `nyc1` (fixed by picking the region at run time). The ssh key stays in `doctl compute ssh-key list`
+    for a while after a successful delete (observed for several minutes), then disappears. One run is not a reliability
+    measure.
 
 ## 7. Is this article-worthy?
 
