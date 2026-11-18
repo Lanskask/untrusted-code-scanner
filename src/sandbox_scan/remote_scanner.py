@@ -70,10 +70,12 @@ CODE_NAMES = {"Makefile", "makefile", "Dockerfile", "justfile", "Rakefile", "Gem
 # Only the WHOLE environment (os.environ, dict(os.environ), JSON.stringify(process.env)) counts: reading one named
 # variable next to a request is what every web app does. A single secret sent by name is not caught here.
 _ENV = r"(os\.environ|process\.env)(?![\w.\[])"
-_NET = r"(requests\.(post|get|put)|urlopen|urllib|fetch\(|axios|http\.request|XMLHttpRequest)"
+_NET = r"(Net::HTTP|HTTParty|RestClient|requests\.(post|get|put)|urlopen|urllib|fetch\(|axios|http\.request|XMLHttpRequest)"
 ENV_EXFIL = _ENV + r"[^\n]{0,160}" + _NET + "|" + _NET + r"[^\n]{0,160}" + _ENV
 
-_SECRET_VAR = r"(os\.environ(\.get\(|\[)|process\.env\.|getenv\()['\"]?\w*(TOKEN|SECRET|PASSW|KEY|CREDENTIAL)\w*"
+_SECRET_VAR = (
+    r"(os\.environ(\.get\(|\[)|process\.env\.|getenv\(|\bENV\[)['\"]?\w*(TOKEN|SECRET|PASSW|KEY|CREDENTIAL)\w*"
+)
 ENV_SECRET_SEND = _SECRET_VAR + r"[^\n]{0,160}" + _NET + "|" + _NET + r"[^\n]{0,160}" + _SECRET_VAR
 
 # Browser-extension IDs of MetaMask, Phantom, Coinbase Wallet and Binance Wallet are from public reports/memory and were
@@ -89,6 +91,27 @@ SEED_SEND = _SEED + r"[^\n]{0,160}" + _SEND + "|" + _SEND + r"[^\n]{0,160}" + _S
 _ADDR = r"0x\[a-fA-F0-9\]\{40\}|\[13\]\[a-km-zA-HJ-NP-Z1-9\]\{25,34\}"
 
 LINE_RULES = [
+    (
+        "clipboard-read",
+        "MEDIUM",
+        r"pyperclip\.paste|clipboard\.readText|navigator\.clipboard\.read|GetClipboardData|\bpbpaste\b",
+        "reads the clipboard (address-swapping clipper?)",
+        True,
+    ),
+    (
+        "screen-capture",
+        "MEDIUM",
+        r"ImageGrab\.grab|pyautogui\.screenshot|pyscreenshot|\bmss\.mss|screenshot-desktop|\bscreencapture\b",
+        "captures the screen",
+        True,
+    ),
+    (
+        "env-dump",
+        "MEDIUM",
+        r"JSON\.stringify\(\s*process\[?\.?['\"]?env|json\.dumps\(\s*(dict\()?os\.environ|\bENV\.to_h\b|os\.Environ\(\)",
+        "serializes the whole environment",
+        True,
+    ),
     ("wallet-theft", "HIGH", _WALLET, "reads crypto-wallet files or wallet browser-extension data", False),
     ("seed-phrase-send", "MEDIUM", SEED_SEND, "seed phrase / private key next to a network call", True),
     ("crypto-address-regex", "MEDIUM", _ADDR, "crypto-address pattern in code (address-swapping clipper?)", True),
@@ -130,7 +153,7 @@ LINE_RULES = [
     (
         "reverse-shell",
         "CRITICAL",
-        r"/dev/tcp/|bash\s+-i\s*>&|\bnc(at)?\s+(-\w+\s+)*-e\s|pty\.spawn\s*\(|os\.dup2\s*\([^)]*fileno",
+        r"/dev/tcp/|bash\s+-i\s*>&|\bnc(at)?\s+(-\w+\s+)*-e\s|pty\.spawn\s*\(|os\.dup2\s*\(\s*(s|\w*(sock|conn|client)\w*)\.fileno",
         "reverse-shell pattern",
         False,
     ),
@@ -193,7 +216,7 @@ LINE_RULES = [
     (
         "persistence",
         "HIGH",
-        r"(crontab\s+-|/etc/cron|\.bashrc|\.zshrc|\.profile\b|LaunchAgents|systemctl\s+enable|schtasks|CurrentVersion\\Run)",
+        r"(crontab\s+-|/etc/cron|\.bashrc|\.zshrc|[~/]\.profile\b|LaunchAgents|systemctl\s+enable|schtasks|CurrentVersion\\Run)",
         "persistence mechanism",
         True,
     ),
@@ -276,7 +299,7 @@ def lev1(a, b):
     return False
 
 
-KNOWN_LEGIT = {"preact"}  # real packages one edit from a popular one; extend only with evidence
+KNOWN_LEGIT = {"preact", "enquirer"}  # real packages one edit from a popular one; extend only with evidence
 
 
 def typosquat(names, popular, eco, rel):
@@ -343,7 +366,7 @@ def structural(rel, name, text, in_deps):
             add("MEDIUM", "bad-json", rel, 0, "package.json does not parse")
             return
         for k, v in (pj.get("scripts") or {}).items():
-            if k in LIFECYCLE and str(v).strip() not in SAFE_LIFECYCLE:
+            if k in LIFECYCLE and str(v).strip() not in SAFE_LIFECYCLE and not str(v).startswith("npx only-allow "):
                 add(
                     "HIGH", "npm-lifecycle-script", rel, 0, "'%s' runs automatically on install: %s" % (k, str(v)[:150])
                 )

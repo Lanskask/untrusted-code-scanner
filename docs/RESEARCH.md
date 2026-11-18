@@ -187,6 +187,18 @@ package). A large Claude-hooks project (`terminal-task-tracker`) also stays flag
 proof of a wrong rule. The held-out projects are no longer held out after this tuning, so the next honest check needs
 new projects. Doc demotion has a cost: a malicious instruction inside a README is now MEDIUM.
 
+#### Fresh validation set
+
+A second set that the rules had not seen: shallow clones of `django/django`, `pytest-dev/pytest`, `psf/black`,
+`facebook/react`, `vuejs/core`, `sveltejs/svelte`, `gin-gonic/gin`, `BurntSushi/ripgrep`, `pallets/click` and
+`encode/httpx` (assumed benign). Before any change **7 of 10 were flagged**, including 5 CRITICAL `reverse-shell` hits
+that were `os.dup2(tmpfile.fileno(), ...)` stream redirection in click and pytest, and `persistence` hits on the word
+`.profile` (`person.profile`, a file-type list). Changes: `reverse-shell` only matches `os.dup2` on a socket-like name,
+`persistence` needs `~/.profile` or `/.profile`, `npx only-allow ...` and `enquirer` are not flagged. After: **6 of 10
+still flagged**, all by rules that are meant to ask for a human look: install-time scripts in monorepos (react 8,
+svelte, vue), a devcontainer command (click), a `sitecustomize.py` (django test) and `.bashrc` in a file-type list
+(ripgrep). The tool is noisy on large monorepos by design. These 10 projects are now tuned on too.
+
 Costs, stated plainly:
 
 - A malicious package inside `node_modules` now shows as MEDIUM, not CRITICAL. The fixture now contains one (a reverse
@@ -216,6 +228,17 @@ Test corpora found by search (unverified): Backstabber's Knife Collection (real 
 packages, access by request), the OpenSSF `malicious-packages` repository (OSV-format reports), and the Trojan Source
 proof-of-concept repository. A 2026 npm benchmark reportedly gives GuardDog an F1 of 93.32 percent (arXiv 2603.27549).
 `sandbox-scan` has not been run on any of these.
+
+### 5.0 Recall against third-party samples (measured)
+
+`experiments/guarddog_recall.py` scans each file that GuardDog's authors marked with `ruleid:` in their rule tests (33
+files, npm, PyPI, Go and RubyGems, inert snippets from `DataDog/guarddog`, read only). Before the new rules the
+heuristics reported something for 22 of 33; after adding `clipboard-read`, `screen-capture`, `env-dump` and Ruby
+network/ENV patterns: **28 of 33 get at least one finding, but only 10 of 33 get a HIGH or CRITICAL one.** The rest are
+MEDIUM (`dyn-exec`, `proc-spawn`), which gives the verdict "no red flags, review the notes" unless semgrep or GuardDog
+add more. Misses: Go exec of decoded or downloaded data, an `install` script in a renamed JSON file, and a Unicode
+sample. Caveat: GuardDog's rules were written for those samples, so this is not a recall figure for real malware and
+says nothing about precision.
 
 ### 5.1 Wallet theft in real incidents (from web searches, unverified)
 

