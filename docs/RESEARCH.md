@@ -130,33 +130,37 @@ them would be DO NOT USE purely because they contain a Python virtual environmen
 - Build output (`target/release`, `.next`) was reported as "committed to repo".
 - `env-exfil` fires on any line that mixes `process.env` and `fetch(`.
 
-#### After the fix (PR #5)
+#### After the fix (PR #5, then the rule changes below)
 
-CRITICAL and HIGH hits inside dependency and build folders now become one MEDIUM `dependency-findings` line per folder.
+CRITICAL and HIGH hits inside dependency and build folders become one MEDIUM `dependency-findings` line per folder.
 Binaries in `node_modules/.bin` and symlinks that leave the project stay HIGH, except a venv link to a `python*`
-executable. The same heuristic scanner was re-run on the same 9 projects:
+executable. A first re-run left 2 of 9 projects SUSPICIOUS: `EDU_Platform` (6 `env-exfil`) and `Looking_for_a_Job` (1
+`trojan-source` in scraped JSON). Two rule changes followed: `env-exfil` only matches the whole environment, and bidi
+characters in non-code files are MEDIUM. Object files (`.o`) are MEDIUM too. Final run, same 9 projects, saved as
+`experiments/benign_fp.py`:
 
-| Project                 | CRITICAL | HIGH | MEDIUM | What is left                        |
-| ----------------------- | -------- | ---- | ------ | ----------------------------------- |
-| `EDU_Platform`          | 0        | 6    | 2      | 6 `env-exfil`                       |
-| `Price_of_Living`       | 0        | 0    | 1      |                                     |
-| `fast-jira-replacement` | 0        | 0    | 1      |                                     |
-| `instagram_summariser`  | 0        | 0    | 131    |                                     |
-| `lean-be-service`       | 0        | 0    | 83     |                                     |
-| `software_factory`      | 0        | 0    | 57     |                                     |
-| `thumbnail-generator`   | 0        | 0    | 61     |                                     |
-| `tiny_triaging_layer`   | 0        | 0    | 0      |                                     |
-| `Looking_for_a_Job`     | 0        | 1    | 16     | 1 `trojan-source` in a scraped JSON |
+| Project                 | Files | CRITICAL | HIGH | MEDIUM |
+| ----------------------- | ----- | -------- | ---- | ------ |
+| `EDU_Platform`          | 697   | 0        | 0    | 1      |
+| `Price_of_Living`       | 7369  | 0        | 0    | 1      |
+| `fast-jira-replacement` | 1423  | 0        | 0    | 1      |
+| `instagram_summariser`  | 7094  | 0        | 0    | 131    |
+| `lean-be-service`       | 777   | 0        | 0    | 83     |
+| `software_factory`      | 2119  | 0        | 0    | 57     |
+| `thumbnail-generator`   | 3436  | 0        | 0    | 61     |
+| `tiny_triaging_layer`   | 145   | 0        | 0    | 0      |
+| `Looking_for_a_Job`     | 744   | 0        | 0    | 17     |
 
-**2 of 9 are now SUSPICIOUS (was 8 of 9), none is DO NOT USE.** Both remaining cases come from rules that fire on
-ordinary code, not from folders. `lean-be-service` went from 6063 to 777 scanned files between the two runs; the cause
-was not checked (the project may have changed in between).
+**0 of 9 are flagged (was 8 of 9).** `lean-be-service` went from 6063 to 777 files between runs; the cause was not
+checked. The rules were tuned on these same 9 projects, so this is a fit to them, not a measured false-positive rate.
 
-The weak spot of this fix: it was measured only on benign projects. A malicious package inside `node_modules` now shows
-as MEDIUM, not CRITICAL. The malicious fixture and the hostile-link tests still pass, but they do not plant an attack
-inside a dependency folder, so how well that case is caught is untested. Semgrep and GuardDog still run on those
-folders. The false-positive rate beyond these 9 has not been measured; the projects are not independent (same author,
-similar stacks).
+Costs, stated plainly:
+
+- A malicious package inside `node_modules` now shows as MEDIUM, not CRITICAL. The fixture now contains one (a reverse
+  shell in `node_modules/evil/index.js`); `make e2e` checks that its `dependency-findings` line names `reverse-shell`.
+  Semgrep and GuardDog reported nothing under `node_modules`, so this single MEDIUM line is the only signal.
+- One secret sent by name (`+process.env.NPM_TOKEN`) is no longer caught by `env-exfil`.
+- Only benign projects were measured. The malicious fixture still gives DO NOT USE.
 
 ## 5. Comparison with existing tools
 
@@ -187,14 +191,14 @@ proof-of-concept repository. A 2026 npm benchmark reportedly gives GuardDog an F
 2. **No detection rate.** There is no measured recall on real malware and no benchmark run.
 3. **Line-based rules** miss patterns split over lines, and encodings or obfuscation outside the patterns.
 4. **False positives:** reduced on projects that ship dependencies or build output (section 4.3), still 2 of 9 benign
-   projects flagged.
-5. **Typosquat check** uses a small name list and misses swapped letters (`lodahs` for `lodash`).
+   projects flagged (see above: 0 of 9 after rule tuning on the same projects).
+5. **Typosquat check** uses a small name list; it catches one edit or one adjacent swap only.
 6. **Dependency and build folders** (`node_modules`, `vendor`, `.venv`, `target`, `dist` and similar) are reduced to one
    MEDIUM summary line each; individual hits there are not reported, so a poisoned dependency is easier to miss.
 7. **Container isolation** shares the host kernel. For stronger isolation use `--provision` or a VM.
-8. **Untested paths:** the SSH/`scp` mode and DigitalOcean provisioning have never run against a real VM; only
-   fake-`doctl` unit tests cover them. GuardDog's JSON shape is parsed defensively and was seen only through the
-   fixture.
+8. **Untested paths:** DigitalOcean provisioning has never run against a real droplet; only fake-`doctl` unit tests
+   cover it. The SSH/`scp` mode is tested end to end against a local sshd container, not a real VM. GuardDog's JSON
+   shape is parsed defensively and was seen only through the fixture.
 9. **Semgrep flakiness** (section 4.2) is unexplained.
 
 ## 7. Is this article-worthy?

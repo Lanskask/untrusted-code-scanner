@@ -28,8 +28,9 @@ def main() -> None:
     ap.add_argument("--key", help="dedicated SSH private key for that VM (required with --host)")
     ap.add_argument("--local", action="store_true", help="scan in a hardened local Docker container (free)")
     ap.add_argument("--provision", choices=["digitalocean"], help="create + destroy a throwaway VM for you")
-    ap.add_argument("--region", default="nyc1")
-    ap.add_argument("--size", default="s-2vcpu-4gb")
+    ap.add_argument("--port", type=int, help="ssh port of --host (default 22)")
+    ap.add_argument("--region", help="--provision only (default nyc1)")
+    ap.add_argument("--size", help="--provision only (default s-2vcpu-4gb)")
     ap.add_argument("--keep", action="store_true", help="do not destroy the provisioned VM afterwards")
     ap.add_argument("--out", help="report output dir (default ./scan-report-<timestamp>)")
     ap.add_argument("--max-mb", type=int, default=500)
@@ -42,6 +43,16 @@ def main() -> None:
         sys.exit("choose exactly one of --local, --host or --provision")
     if a.host and not a.key:
         sys.exit("--key is required with --host (use a dedicated throwaway key, not your real one)")
+
+    for flag, val, ok in (
+        ("--key", a.key, a.host),
+        ("--port", a.port, a.host),
+        ("--region", a.region, a.provision),
+        ("--size", a.size, a.provision),
+        ("--keep", a.keep, a.provision),
+    ):
+        if val and not ok:
+            sys.exit(f"{flag} has no effect with the chosen mode; remove it")
 
     out_dir = Path(a.out or f"scan-report-{datetime.datetime.now():%Y%m%d-%H%M%S}")
     # Docker VMs (Colima, Docker Desktop) share only $HOME with containers, not the system temp dir.
@@ -66,14 +77,14 @@ def main() -> None:
         else:
             if a.provision:
                 log("[2/5] Creating disposable DigitalOcean droplet ...")
-                provider = DigitalOcean(tmp, a.region, a.size)
+                provider = DigitalOcean(tmp, a.region or "nyc1", a.size or "s-2vcpu-4gb")
                 host = provider.create()
                 key = provider.key
             else:
                 host, key = a.host, a.key
                 log("[2/5] Using your VM " + clean(host) + " - make sure it is fresh and holds no credentials.")
 
-            rem = Remote(host, key, tmp)
+            rem = Remote(host, key, tmp, a.port or 22)
             log("[3/5] Waiting for SSH ...")
             rem.wait_ready()
             rem.ssh("mkdir -p /tmp/scan")

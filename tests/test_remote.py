@@ -28,7 +28,19 @@ def test_destroy_deletes_droplet_even_if_create_failed_after_it_existed(
     assert ["doctl", "compute", "ssh-key", "delete", "-f", "7"] in calls
 
 
-@pytest.mark.parametrize("argv", [["x"], ["x", "--host", "h"], ["x", "--host", "h", "--provision", "digitalocean"]])
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["x"],
+        ["x", "--host", "h"],
+        ["x", "--host", "h", "--provision", "digitalocean"],
+        ["x", "--local", "--key", "k"],  # flags the chosen mode would silently ignore are rejected
+        ["x", "--local", "--keep"],
+        ["x", "--host", "h", "--key", "k", "--keep"],
+        ["x", "--host", "h", "--key", "k", "--region", "ams3"],
+        ["x", "--local", "--port", "2222"],
+    ],
+)
 def test_cli_rejects_bad_args(argv: list[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "argv", ["sandbox-scan", str(tmp_path), *argv[1:]])
     with pytest.raises(SystemExit) as e:
@@ -50,3 +62,21 @@ def test_destroy_reports_a_failed_delete_instead_of_claiming_success(
     out = capsys.readouterr().out
     assert "destroyed droplet" not in out
     assert "doctl compute droplet delete 42" in out  # tells the user the exact command to stop billing
+
+
+def test_port_is_passed_to_ssh_and_scp(tmp_path: Path) -> None:
+    r = remote.Remote("u@h", "k", tmp_path, port=2222)
+    assert "Port=2222" in r.opts
+
+
+def test_droplet_is_destroyed_when_ssh_never_comes_up(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    destroyed: list[bool] = []
+    monkeypatch.setattr(sys, "argv", ["sandbox-scan", str(tmp_path), "--provision", "digitalocean"])
+    monkeypatch.setattr(remote.DigitalOcean, "__init__", lambda self, *a, **k: setattr(self, "key", "k"))
+    monkeypatch.setattr(remote.DigitalOcean, "create", lambda self: "root@1.2.3.4")
+    monkeypatch.setattr(remote.DigitalOcean, "destroy", lambda self: destroyed.append(True))
+    monkeypatch.setattr(remote.Remote, "wait_ready", lambda self: (_ for _ in ()).throw(RuntimeError("no ssh")))
+    with pytest.raises(SystemExit) as e:
+        cli.main()
+    assert e.value.code == 3
+    assert destroyed == [True]  # the droplet is billing: it must go even though the scan never started

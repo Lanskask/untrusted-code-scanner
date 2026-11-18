@@ -10,7 +10,7 @@ from .textutil import clean, log
 
 
 class Remote:
-    def __init__(self, host: str, key: str | Path, tmp: str | Path) -> None:
+    def __init__(self, host: str, key: str | Path, tmp: str | Path, port: int = 22) -> None:
         self.host = host
         self.opts = [
             "-F",
@@ -31,6 +31,8 @@ class Remote:
             f"UserKnownHostsFile={tmp}/known_hosts",
             "-o",
             "ConnectTimeout=10",
+            "-o",
+            f"Port={port}",
             "-o",
             "ServerAliveInterval=30",
             "-i",
