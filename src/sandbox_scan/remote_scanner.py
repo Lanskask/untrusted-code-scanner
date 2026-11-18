@@ -17,6 +17,7 @@ stats = {"files": 0, "text_files": 0, "binary_files": 0, "symlinks": 0, "skipped
 # Dependency and build-output folders are full of benign "scary" text and binaries. Their CRITICAL/HIGH hits are
 # counted per folder and reported as ONE medium line, instead of drowning the real findings.
 DEP_DIRS = ("node_modules", "site-packages", "vendor", "third_party", ".venv", "venv")
+LOCKFILES = ("package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml")
 ARCHIVE_EXT = (".zip", ".tar", ".tgz", ".gz", ".bz2", ".xz", ".7z", ".rar")
 BUILD_DIRS = ("target", "cargo-target", ".next", "dist", "build", "out")
 dep_hits = {}  # dep folder -> {rule: count}
@@ -256,6 +257,13 @@ LINE_RULES = [
         "MEDIUM",
         r"(--extra-index-url|--index-url|--trusted-host|^\s*registry\s*=|^\s*@[\w-]+:registry\s*=)",
         "package source override",
+        False,
+    ),
+    (
+        "lockfile-foreign-host",
+        "HIGH",
+        r"(resolved|tarball)\"?:?\s*\"?https?://(?!registry\.npmjs\.org/|registry\.yarnpkg\.com/)",
+        "lockfile fetches a package from outside the public registry (dependency substitution)",
         False,
     ),
     (
@@ -597,6 +605,8 @@ def scan_one(p):
             if rid == "trojan-source" and not is_code:
                 sev = "MEDIUM"  # bidi chars in scraped data are common; in code they hide logic
             if rid == "long-b64-blob" and ext in (".lock", ".json", ".svg", ".map"):
+                continue
+            if rid == "lockfile-foreign-host" and name not in LOCKFILES:
                 continue
             if rid == "pkg-source-override" and not re.search(
                 r"(requirements|\.npmrc|\.yarnrc|pip\.conf|\.txt$)", rel, re.I
