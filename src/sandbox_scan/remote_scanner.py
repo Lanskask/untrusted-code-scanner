@@ -73,7 +73,17 @@ _ENV = r"(os\.environ|process\.env)(?![\w.\[])"
 _NET = r"(requests\.(post|get|put)|urlopen|urllib|fetch\(|axios|http\.request|XMLHttpRequest)"
 ENV_EXFIL = _ENV + r"[^\n]{0,160}" + _NET + "|" + _NET + r"[^\n]{0,160}" + _ENV
 
+_SECRET_VAR = r"(os\.environ(\.get\(|\[)|process\.env\.|getenv\()['\"]?\w*(TOKEN|SECRET|PASSW|KEY|CREDENTIAL)\w*"
+ENV_SECRET_SEND = _SECRET_VAR + r"[^\n]{0,160}" + _NET + "|" + _NET + r"[^\n]{0,160}" + _SECRET_VAR
+
 LINE_RULES = [
+    (
+        "env-secret-send",
+        "MEDIUM",
+        ENV_SECRET_SEND,
+        "a secret-named environment variable sits next to a network call",
+        False,
+    ),
     (
         "pipe-to-shell",
         "CRITICAL",
@@ -435,6 +445,11 @@ def walk():
             yield os.path.join(dirpath, fn)
 
 
+SENSITIVE = re.compile(
+    r"(^|/)(\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.netrc|\.npmrc|\.pypirc|\.git-credentials|\.config/gcloud|etc|root|proc|var/run)(/|$)"
+)
+
+
 def handle_symlink(p):
     global cur_dep
     cur_dep = None  # walk() calls this between files; a symlink escape is never summarized away
@@ -448,7 +463,8 @@ def handle_symlink(p):
     # a venv's bin/python -> the system python is normal; any other link out of the project is not
     venv_python = any(x in (".venv", "venv") for x in rel.split("/")) and os.path.basename(tgt).startswith("python")
     if not (real == ROOT or real.startswith(ROOT + os.sep)) and not venv_python:
-        add("HIGH", "symlink-escape", rel, 0, "symlink points outside the project: %s" % tgt)
+        sev = "HIGH" if SENSITIVE.search(tgt) else "MEDIUM"  # a link to a cache dir is noise; to ~/.ssh or /etc is not
+        add(sev, "symlink-escape", rel, 0, "symlink points outside the project: %s" % tgt)
 
 
 def main():
@@ -502,8 +518,6 @@ def main():
         stats["text_files"] += 1
         ext = os.path.splitext(name)[1].lower()
         is_code = ext in CODE_EXT or name in CODE_NAMES or text.startswith("#!")
-        if text.startswith("#!") and ext == "" and not in_deps:
-            pass
         structural(rel, name, text, in_deps)
         hex_names = 0
         for i, line in enumerate(text.split("\n"), 1):

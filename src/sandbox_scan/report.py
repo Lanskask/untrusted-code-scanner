@@ -20,10 +20,16 @@ RESULT_FILES = {
 SEV_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 
 
+class Incomplete(str):
+    """A note that says coverage is missing; verdict() reads the type, not the wording."""
+
+
 def read_results(tgz_path: str | Path) -> dict[str, str]:
     out = {}
     with tarfile.open(tgz_path, "r:gz") as tf:
-        for m in tf.getmembers():
+        for n, m in enumerate(tf):
+            if n >= 100:  # we expect about 10 files; stop walking an archive a compromised VM made huge
+                break
             if not m.isfile() or m.size > 50 * 1024 * 1024:
                 continue
             name = os.path.basename(m.name)
@@ -44,7 +50,7 @@ def merge_findings(res: dict[str, str]) -> tuple[list[dict[str, Any]], dict[str,
     findings, notes = [], []
     h = load_json(res.get("heuristics.json", ""))
     if h is None:
-        notes.append("Heuristic scanner produced no usable output - treat result as INCOMPLETE.")
+        notes.append(Incomplete("Heuristic scanner produced no usable output - treat result as INCOMPLETE."))
         stats = {}
     else:
         findings += h.get("findings", [])
@@ -66,7 +72,7 @@ def merge_findings(res: dict[str, str]) -> tuple[list[dict[str, Any]], dict[str,
                 }
             )
     else:
-        notes.append("Semgrep results missing (install failed or timed out) - coverage INCOMPLETE; re-run.")
+        notes.append(Incomplete("Semgrep results missing (install failed or timed out) - coverage INCOMPLETE; re-run."))
         if err := res.get("semgrep.err", "").strip():
             notes.append("semgrep stderr: " + clean(err[-300:]))
     for eco in ("npm", "pypi"):
@@ -100,7 +106,7 @@ def merge_findings(res: dict[str, str]) -> tuple[list[dict[str, Any]], dict[str,
 
 def verdict(findings: list[dict[str, Any]], notes: list[str]) -> tuple[str, int]:
     sev = {f["severity"] for f in findings}
-    incomplete = any("INCOMPLETE" in n for n in notes)
+    incomplete = any(isinstance(n, Incomplete) for n in notes)
     if "CRITICAL" in sev:
         return "DO NOT USE", 2
     if "HIGH" in sev:

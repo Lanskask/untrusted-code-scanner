@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from sandbox_scan.pack import pack
-from sandbox_scan.report import verdict
+from sandbox_scan.report import Incomplete, verdict
 from sandbox_scan.textutil import clean
 
 SCANNER = str(resources.files("sandbox_scan").joinpath("remote_scanner.py"))
@@ -72,7 +72,7 @@ def test_clean_repo_has_no_findings(tmp_path: Path) -> None:
     [
         (["CRITICAL", "HIGH"], [], "DO NOT USE", 2),
         (["HIGH"], [], "SUSPICIOUS - MANUAL REVIEW REQUIRED", 1),
-        (["MEDIUM"], ["Semgrep results missing ... INCOMPLETE"], "INCONCLUSIVE - SCAN INCOMPLETE", 1),
+        (["MEDIUM"], [Incomplete("Semgrep results missing")], "INCONCLUSIVE - SCAN INCOMPLETE", 1),
         (["MEDIUM"], [], "NO RED FLAGS, BUT REVIEW THE NOTES", 0),
         ([], [], "NO KNOWN RED FLAGS", 0),
     ],
@@ -186,3 +186,38 @@ def test_dependency_findings_are_listed_before_other_medium_lines() -> None:
     res = {"heuristics.json": j.dumps({"findings": [*others, dep], "stats": {}})}
     findings_, *_ = merge_findings(res)
     assert findings_[0]["rule"] == "dependency-findings"
+
+
+def test_symlink_out_of_project_is_high_only_when_the_target_is_sensitive(tmp_path: Path) -> None:
+    (tmp_path / "cache_log").symlink_to("/Users/someone/Library/Caches/wandb/log")
+    (tmp_path / "key").symlink_to("/home/u/.ssh/id_ed25519")
+    (tmp_path / "etc").symlink_to("/etc/passwd")
+    sev = {f["file"]: f["severity"] for f in findings(tmp_path) if f["rule"] == "symlink-escape"}
+    assert sev == {"cache_log": "MEDIUM", "key": "HIGH", "etc": "HIGH"}
+
+
+def test_results_tar_with_too_many_members_is_not_trusted(tmp_path: Path) -> None:
+    from sandbox_scan.report import read_results
+
+    tgz = tmp_path / "r.tgz"
+    (tmp_path / "x").write_text("x")
+    with tarfile.open(tgz, "w:gz") as tf:
+        for i in range(500):
+            tf.add(tmp_path / "x", arcname=f"junk{i}")
+        tf.add(tmp_path / "x", arcname="heuristics.json")
+    assert "heuristics.json" not in read_results(tgz)  # a compromised VM cannot make us walk a huge archive
+
+
+def test_incomplete_is_a_flag_not_a_word_in_the_text() -> None:
+    from sandbox_scan.report import Incomplete
+
+    assert verdict([], ["scan INCOMPLETE (a plain note quoting the word)"])[1] == 0
+    assert verdict([], [Incomplete("semgrep missing")])[0] == "INCONCLUSIVE - SCAN INCOMPLETE"
+
+
+def test_one_secret_named_variable_sent_over_the_network_is_medium(tmp_path: Path) -> None:
+    write(tmp_path, "a.js", "fetch(u, {body: process.env.NPM_TOKEN})\n")
+    write(tmp_path, "b.py", "requests.post(u, data=os.environ['AWS_SECRET_ACCESS_KEY'])\n")
+    write(tmp_path, "c.js", "fetch(process.env.API_URL)\n")  # a URL setting, not a secret
+    got = {f["file"]: f["severity"] for f in findings(tmp_path) if f["rule"] == "env-secret-send"}
+    assert got == {"a.js": "MEDIUM", "b.py": "MEDIUM"}
