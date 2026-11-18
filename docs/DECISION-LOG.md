@@ -130,3 +130,10 @@
 - Reason: the user asked about wallet-stealing code (research in `docs/RESEARCH.md` section 5.1). The first real
   `--provision` run failed with `Size is not available in this region` in the default `nyc1`: availability changes, so a
   fixed default region is a bug found only by running it.
+
+## 2026-11-18 GuardDog stderr is shipped back; semgrep flakiness closed as not reproducible
+
+- Decision: `guarddog_npm.err` and `guarddog_pypi.err` are returned and shown as a note when GuardDog produced no
+  result. No further work on the semgrep failure.
+- Reason: measured. 39 sequential loop runs and 5 parallel full scans did not fail (`docs/RESEARCH.md` section 4.2), so
+  more retries or code would be guesses. The failure stays observable (stderr in the report) and fail-closed.

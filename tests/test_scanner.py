@@ -246,3 +246,14 @@ def test_wallet_theft_patterns(tmp_path: Path) -> None:
         "seed.js": "seed-phrase-send:MEDIUM",
         "clip.py": "crypto-address-regex:MEDIUM",
     }
+
+
+def test_guarddog_stderr_is_shown_when_it_produced_no_result(tmp_path: Path) -> None:
+    from sandbox_scan.report import merge_findings, read_results
+
+    (tmp_path / "guarddog_npm.err").write_text("guarddog crashed: boom")
+    tgz = tmp_path / "r.tgz"
+    with tarfile.open(tgz, "w:gz") as tf:
+        tf.add(tmp_path / "guarddog_npm.err", arcname="guarddog_npm.err")
+    _, _, notes, _ = merge_findings(read_results(tgz))
+    assert any("guarddog (npm)" in n and "boom" in n for n in notes)

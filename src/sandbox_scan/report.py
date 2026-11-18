@@ -16,6 +16,8 @@ RESULT_FILES = {
     "status.txt",
     "heuristics.err",
     "semgrep.err",
+    "guarddog_npm.err",
+    "guarddog_pypi.err",
 }
 SEV_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 
@@ -78,6 +80,8 @@ def merge_findings(res: dict[str, str]) -> tuple[list[dict[str, Any]], dict[str,
     for eco in ("npm", "pypi"):
         gd = load_json(res.get(f"guarddog_{eco}.json", ""))
         if not gd:
+            if err := res.get(f"guarddog_{eco}.err", "").strip():  # it ran (the file exists) but gave no result
+                notes.append(f"guarddog ({eco}) stderr: " + clean(err[-300:]))
             continue
         results = gd.get("results") or {}
         for rule, val in results.items():
