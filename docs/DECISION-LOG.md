@@ -60,6 +60,17 @@
 - Reason: the user asked whether the tool knows that only deleting stops billing. It deletes (never powers off), but it
   printed "destroyed" even when the delete failed, for example with a token without delete rights.
 
+## 2026-11-18 Dependency and build folders are summarized, not scanned line by line
+
+- Decision: CRITICAL/HIGH hits inside `node_modules`, `.venv`, `venv`, `site-packages`, `vendor`, `third_party`,
+  `target`, `cargo-target`, `.next`, `dist`, `build` and `out` become one MEDIUM `dependency-findings` line per folder,
+  listing the rules seen and their counts. Kept as HIGH: binaries in `node_modules/.bin`, and symlinks leaving the
+  project, except a venv link to a `python*` executable.
+- Reason: measured in `docs/RESEARCH.md`: 8 of 9 benign projects got DO NOT USE or SUSPICIOUS, almost all from these
+  folders. Trade-off accepted by the user: a malicious package inside `node_modules` now shows as MEDIUM only (semgrep
+  and GuardDog still run on it), so a MEDIUM `dependency-findings` line with `reverse-shell` or `pipe-to-shell` deserves
+  a manual look.
+
 ## 2026-11-17 Research document states that it proves nothing
 
 - Decision: `docs/RESEARCH.md` is an honest engineering write-up (threat model, test-checked properties, measured runs,
