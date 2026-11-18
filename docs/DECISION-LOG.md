@@ -137,3 +137,12 @@
   result. No further work on the semgrep failure.
 - Reason: measured. 39 sequential loop runs and 5 parallel full scans did not fail (`docs/RESEARCH.md` section 4.2), so
   more retries or code would be guesses. The failure stays observable (stderr in the report) and fail-closed.
+
+## 2026-11-18 Tuning from a held-out check; docs are MEDIUM
+
+- Decision: CRITICAL/HIGH line rules in `.md`, `.rst`, `.adoc` become MEDIUM; `py-exec-compile` needs decoding or
+  fetching on the line; `cryptominer` needs `stratum+tcp://host:port`; exact `husky`, `husky install`, `patch-package`,
+  `node-gyp rebuild` lifecycle values are skipped; typosquat skips names under 5 letters and `preact`.
+- Reason: measured. On 11 projects the rules had never seen, 7 were flagged; reading each finding showed prose, a config
+  loader, a test string and a git-hook installer (`docs/RESEARCH.md` section 4.3). After: 3 of 18 flagged, all with a
+  reason to read. The earlier 0 of 9 was a fit to the tuning set.

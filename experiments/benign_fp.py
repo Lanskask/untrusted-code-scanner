@@ -3,7 +3,9 @@
 Usage: python3 experiments/benign_fp.py DIR [DIR ...]   (each DIR is one project; paths are arguments, not committed)
 
 Answer (2026-11-18, author's own 9 projects, before the env-exfil/trojan-source/object-file changes): 2 of 9 flagged
-HIGH, none CRITICAL. The numbers belong in docs/RESEARCH.md section 4.3, which is the place to read them.
+HIGH, none CRITICAL. Held-out check (2026-11-18): the same script on 5 more own projects plus shallow clones of pallets/flask,
+psf/requests, expressjs/express, lodash/lodash, tiangolo/fastapi, axios/axios flagged 7 of 11 before tuning and
+3 of 18 after. The numbers belong in docs/RESEARCH.md section 4.3, which is the place to read them.
 """
 
 import collections

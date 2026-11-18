@@ -163,6 +163,30 @@ characters in non-code files are MEDIUM. Object files (`.o`) are MEDIUM too. Fin
 **0 of 9 are flagged (was 8 of 9).** `lean-be-service` went from 6063 to 777 files between runs; the cause was not
 checked. The rules were tuned on these same 9 projects, so this is a fit to them, not a measured false-positive rate.
 
+#### Held-out check (unseen projects)
+
+The "0 of 9" above is a fit: the rules were tuned on those same projects. To test that, the scanner was run on projects
+it had never been tuned on: 5 more of the author's projects, and shallow clones of `pallets/flask`, `psf/requests`,
+`expressjs/express`, `lodash/lodash`, `tiangolo/fastapi` and `axios/axios` (assumed benign, not audited). Result before
+any change: **7 of 11 flagged** (`World_Lidar_Globus` timed out). Causes, from reading each finding:
+
+- Documentation that quotes attacks: `curl ... | sh` and `base64 -d | sh` in a security note, `~/.aws/credentials` in a
+  threat model. Prose does not run.
+- `exec(compile(config_file.read(), ...))` in Flask's config loader, rated CRITICAL.
+- A `stratum+tcp://server:port` string in an axios URL-parser test, rated as a cryptominer.
+- A `husky` `prepare` script, rated as an install-time attack.
+- `typosquat?` on `qs` (one edit from `ws`) and `preact` (one edit from `react`).
+
+Changes made: HIGH and CRITICAL line rules in `.md`, `.rst` and `.adoc` files become MEDIUM; `py-exec-compile` needs a
+decoding or fetching word on the line; the miner rule needs a pool address with a port; four exact lifecycle values
+(`husky`, `husky install`, `patch-package`, `node-gyp rebuild`) are not flagged; typosquat ignores names shorter than 5
+letters and `preact`. After the changes, on 18 projects: **3 flagged** (axios: a lifecycle script and a devcontainer
+`postCreateCommand`; flask: a devcontainer command; fastapi: `typosquat?` on `httpx2`, which was not verified as a real
+package). A large Claude-hooks project (`terminal-task-tracker`) also stays flagged for its installer scripts that edit
+`~/.zshrc`, which is what the `persistence` rule is for. These remaining flags are the kind a human should read, not
+proof of a wrong rule. The held-out projects are no longer held out after this tuning, so the next honest check needs
+new projects. Doc demotion has a cost: a malicious instruction inside a README is now MEDIUM.
+
 Costs, stated plainly:
 
 - A malicious package inside `node_modules` now shows as MEDIUM, not CRITICAL. The fixture now contains one (a reverse

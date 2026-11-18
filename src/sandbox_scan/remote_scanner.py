@@ -123,8 +123,8 @@ LINE_RULES = [
     (
         "py-exec-compile",
         "CRITICAL",
-        r"\bexec\s*\(\s*(compile|marshal\.loads)\b",
-        "exec of compiled/marshalled code",
+        r"\bexec\s*\(\s*(compile|marshal\.loads)\b[^\n]*(b64|base64|zlib|marshal|urlopen|requests|decompress)|\bexec\s*\(\s*marshal\.loads",
+        "exec of decoded/marshalled code",
         False,
     ),
     (
@@ -169,7 +169,13 @@ LINE_RULES = [
         "known exfil / callback endpoint",
         False,
     ),
-    ("cryptominer", "HIGH", r"xmrig|stratum\+tcp|cryptonight|minerd\b|nicehash", "cryptominer indicator", False),
+    (
+        "cryptominer",
+        "HIGH",
+        r"xmrig|stratum\+(tcp|ssl)://[^\s\x27\"]+:\d{2,5}|cryptonight|minerd\b|nicehash",
+        "cryptominer indicator",
+        False,
+    ),
     (
         "trojan-source",
         "HIGH",
@@ -249,6 +255,7 @@ KNOWN_BACKENDS = {
     "mesonpy",
     "uv_build",
 }
+SAFE_LIFECYCLE = {"husky", "husky install", "patch-package", "node-gyp rebuild"}  # exact values only
 LIFECYCLE = {"preinstall", "install", "postinstall", "prepublish", "prepare", "preprepare", "postprepare"}
 
 
@@ -269,11 +276,14 @@ def lev1(a, b):
     return False
 
 
+KNOWN_LEGIT = {"preact"}  # real packages one edit from a popular one; extend only with evidence
+
+
 def typosquat(names, popular, eco, rel):
     pop = set(popular)
     for n in names:
         n0 = n.lower().replace("_", "-").replace(".", "-") if eco == "pypi" else n.lower()
-        if n0 in pop:
+        if n0 in pop or len(n0) < 5 or n0 in KNOWN_LEGIT:
             continue
         for p in popular:
             if lev1(n0, p):
@@ -333,7 +343,7 @@ def structural(rel, name, text, in_deps):
             add("MEDIUM", "bad-json", rel, 0, "package.json does not parse")
             return
         for k, v in (pj.get("scripts") or {}).items():
-            if k in LIFECYCLE:
+            if k in LIFECYCLE and str(v).strip() not in SAFE_LIFECYCLE:
                 add(
                     "HIGH", "npm-lifecycle-script", rel, 0, "'%s' runs automatically on install: %s" % (k, str(v)[:150])
                 )
@@ -547,6 +557,8 @@ def main():
                     continue
                 if in_deps and sev not in ("CRITICAL", "HIGH"):
                     continue
+                if ext in (".md", ".rst", ".adoc") and sev in ("CRITICAL", "HIGH") and rid != "trojan-source":
+                    sev = "MEDIUM"  # prose that quotes `curl | sh` or ~/.ssh does not run; still listed
                 if rid == "trojan-source" and not is_code:
                     sev = "MEDIUM"  # bidi chars in scraped data are common; in code they hide logic
                 if rid == "long-b64-blob" and ext in (".lock", ".json", ".svg", ".map"):
